@@ -7,11 +7,15 @@ from typing import List
 
 from allocator import FundAllocator
 from analyzer import FundAnalyzer
+from article_fetcher import fetch_article
+from breadth_analyzer import BreadthAnalyzer
 from config import FundbotConfig
 from data_fetcher import TEFASDataFetcher
 from data_provider_healthcheck import run_provider_smoke_checks
+from external_calendar import upcoming_events
 from external_context import load_external_context
 from external_scan import ExternalScanner
+from fund_profiler import FundProfiler
 from portfolio_manager import PortfolioManager
 from portfolio_store import PortfolioStore
 from regime_detector import RegimeDetector
@@ -56,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--external-context", type=str, default="", help="Override path to the external-context JSON. Default: context/current_external_context.json.")
     parser.add_argument("--ignore-external-context-gate", action="store_true", help="Do not cap confidence when external context is missing/stale/incomplete. Use with caution.")
     parser.add_argument("--scan-only", action="store_true", help="Run the external scanner and exit. Useful for AI operator to refresh context without generating a recommendation.")
+    parser.add_argument("--fetch-article", type=str, default="", help="Fetch a single article URL and print its plain text (for AI operator to read into a research note).")
+    parser.add_argument("--skip-profiler", action="store_true", help="Skip TEFAS breakdown enrichment (fund_profiler). Falls back to keyword-based money market detection.")
     return parser
 
 
@@ -100,6 +106,15 @@ def _print_status(out) -> int:
     if ext.regime_score_delta:
         ext_summary += f" regime_delta={ext.regime_score_delta:+.1f}"
     lines.append(ext_summary)
+
+    # Calendar
+    events = upcoming_events(within_days=7)
+    if events:
+        lines.append(f"calendar_within_7d: {len(events)} event(s)")
+        for ev in events[:5]:
+            lines.append(f"  - in {ev.days_until}d: {ev.label} ({ev.kind}) on {ev.date}")
+    else:
+        lines.append("calendar_within_7d: no known events")
 
     # Pending research
     research = ResearchStore().load_recent(days=60)
@@ -190,6 +205,15 @@ def run(argv: List[str] | None = None) -> int:
         return 0 if all(r.get("status") == "pass" for r in rows) else 1
     if args.record_research:
         return _record_research(args, out)
+    if args.fetch_article:
+        result = fetch_article(args.fetch_article)
+        if result.error:
+            text = f"fetch error: {result.error}\nurl: {result.url}"
+            out.print(text) if out else print(text)
+            return 5
+        text = f"URL: {result.final_url}\nTITLE: {result.title or '(none)'}\nLENGTH: {result.char_count} chars\n\n{result.text}"
+        out.print(text) if out else print(text)
+        return 0
     if args.scan_only:
         config = FundbotConfig(external_context_path=Path(args.external_context) if args.external_context else FundbotConfig().external_context_path)
         codes = [c.strip().upper() for c in args.codes.split(",") if c.strip()]
@@ -228,7 +252,17 @@ def run(argv: List[str] | None = None) -> int:
         out.print(text) if out else print(text)
         return 2
 
-    universe = UniverseBuilder(config).build(fetch.metadata, fetch.histories)
+    profiles: dict = {}
+    profiler_notes: list = []
+    if not args.skip_profiler:
+        profile_codes = list(fetch.histories.keys())
+        if profile_codes:
+            profiler_result = FundProfiler().profile(profile_codes)
+            profiles = {code: p for code, p in profiler_result.profiles.items()}
+            profiler_notes = list(profiler_result.unavailable_data)
+            if profiler_result.verified_data:
+                logging.info("fund profiler: %s", profiler_result.verified_data[0])
+    universe = UniverseBuilder(config).build(fetch.metadata, fetch.histories, profiles=profiles)
     analyzer = FundAnalyzer()
     metrics = [analyzer.analyze_fund(f.code, f.name, f.category, fetch.histories[f.code]) for f in universe]
     opportunity_metrics = [m for m, f in zip(metrics, universe) if not f.is_money_market]
@@ -240,7 +274,12 @@ def run(argv: List[str] | None = None) -> int:
         text = "Veri yok: at least one aggressive candidate and one money market candidate are required."
         out.print(text) if out else print(text)
         return 3
-    regime = RegimeDetector().detect()
+    breadth = BreadthAnalyzer().analyze(opportunity_metrics)
+    # Regime now blends macro-proxy detector (when available) with cross-sectional
+    # breadth. Breadth is independent of Yahoo/Google so it works in offline mode.
+    macro_regime = RegimeDetector().detect()
+    blended_regime_score = 0.5 * macro_regime.score + 0.5 * breadth.score
+    regime_inputs = list(macro_regime.unavailable_inputs) + [f"breadth: {breadth.label} ({breadth.score}/100, {int(breadth.positive_3m_pct*100)}% positive 3M)"]
     top = opportunities[0]
     mm = money[0]
 
@@ -280,7 +319,7 @@ def run(argv: List[str] | None = None) -> int:
         opportunity_score=top.score,
         money_market_code=mm.code,
         money_market_name=mm.name,
-        regime_score=max(0.0, min(100.0, regime.score + external_context.regime_score_delta)),
+        regime_score=max(0.0, min(100.0, blended_regime_score + external_context.regime_score_delta)),
         risk_penalty=max(top.metrics.volatility_3m * 10 + abs(top.metrics.max_drawdown) * 20 + external_context.risk_penalty_delta, 0),
         external_verified_data=external_context.verified_data,
         external_unavailable_data=external_context.unavailable_data + external_context.notes,
@@ -298,7 +337,7 @@ def run(argv: List[str] | None = None) -> int:
     paths = DecisionReporter().save(
         decision,
         candidate_rows,
-        fetch.unavailable_data + regime.unavailable_inputs,
+        fetch.unavailable_data + regime_inputs + profiler_notes,
         portfolio_decision=portfolio_decision,
         source_attribution=fetch.source_attribution,
         research_notes=research_notes,

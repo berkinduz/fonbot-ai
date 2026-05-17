@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Callable, Iterable, List
 
 from config import FundbotConfig
+from kap_provider import KAPProvider
 
 FetchText = Callable[[str], str]
 
@@ -40,10 +41,17 @@ class ExternalScanner:
 
     YAHOO_SYMBOLS = {
         "USDTRY": "TRY=X",
+        "EURTRY": "EURTRY=X",
         "Nasdaq": "^IXIC",
+        "SP500": "^GSPC",
         "Gold": "GC=F",
         "BIST100": "XU100.IS",
+        "US10Y": "^TNX",
+        "VIX": "^VIX",
+        "Brent": "BZ=F",
+        "EM_Equity": "EEM",
     }
+    YAHOO_WINDOWS = {"1m": "1mo", "3m": "3mo", "6m": "6mo"}
 
     NEWS_QUERIES_GENERAL = ["TEFAS fon piyasası", "BIST hisse senedi fonları"]
     NEWS_QUERIES_PER_FUND = [
@@ -54,14 +62,23 @@ class ExternalScanner:
     ]
     RATES_QUERIES = ["TCMB politika faizi", "TÜİK enflasyon yıllık"]
 
-    def __init__(self, fetch_text: FetchText | None = None):
+    def __init__(self, fetch_text: FetchText | None = None, kap_provider: KAPProvider | None = None):
         self.fetch_text = fetch_text or default_fetch_text
+        self.kap_provider = kap_provider if kap_provider is not None else KAPProvider(fetch_text=self.fetch_text)
 
     def scan(self, codes: Iterable[str], output_path: Path | None = None) -> dict:
         codes = [c.strip().upper() for c in codes if c.strip()]
         macro = self._scan_macro()
         rates = self._scan_rates_inflation()
         news = self._scan_news(codes)
+        kap_section = self._scan_kap(codes)
+        fund_specific = self._fund_specific_from_news(codes, news)
+        # Merge KAP items into fund_specific so structural risk is detected
+        # from the authoritative source first. KAP items carry `source: kap`
+        # which the intelligence layer treats as a confirming source.
+        fund_specific["items"] = list(fund_specific.get("items", [])) + list(kap_section.get("items", []))
+        fund_specific["verified_facts"] = list(fund_specific.get("verified_facts", [])) + list(kap_section.get("verified_facts", []))
+        fund_specific["unknowns"] = list(fund_specific.get("unknowns", [])) + list(kap_section.get("unknowns", []))
         context = {
             "schema": "fundbot_external_context_v1",
             "date": date.today().isoformat(),
@@ -71,15 +88,15 @@ class ExternalScanner:
                 "macro_regime": macro,
                 "rates_inflation": rates,
                 "market_news": news,
-                "fund_specific": self._fund_specific_from_news(codes, news),
+                "fund_specific": fund_specific,
                 "execution_timing": {
                     "verified_facts": ["TEFAS-listed funds are generally buyable; orders should be placed during business hours"],
                     "unknowns": [],
                     "items": [],
                 },
             },
-            "risks": self._derive_risks(macro, rates, news),
-            "sources": sorted(set(macro.get("sources", []) + rates.get("sources", []) + news.get("sources", []))),
+            "risks": self._derive_risks(macro, rates, news, kap_section),
+            "sources": sorted(set(macro.get("sources", []) + rates.get("sources", []) + news.get("sources", []) + kap_section.get("sources", []))),
         }
         if output_path is not None:
             output_path = Path(output_path)
@@ -93,21 +110,42 @@ class ExternalScanner:
         items = []
         sources = []
         for label, symbol in self.YAHOO_SYMBOLS.items():
-            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range=1mo&interval=1d"
-            try:
-                payload = json.loads(self.fetch_text(url))
-                closes = _extract_yahoo_closes(payload)
-                if len(closes) < 2:
-                    unknowns.append(f"macro source returned insufficient closes for {label}/{symbol}")
-                    continue
-                change = (closes[-1] / closes[0] - 1) * 100
-                facts.append(f"{label} checked via Yahoo chart: 1M change {change:.2f}%")
-                items.append({"label": label, "symbol": symbol, "first": closes[0], "latest": closes[-1], "change_1m_pct": round(change, 2)})
-                sources.append(url)
-            except Exception as exc:
-                unknowns.append(f"macro source failed for {label}/{symbol}: {type(exc).__name__}: {exc}")
+            item: dict = {"label": label, "symbol": symbol}
+            window_ok = False
+            for window_key, yahoo_range in self.YAHOO_WINDOWS.items():
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(symbol)}?range={yahoo_range}&interval=1d"
+                try:
+                    payload = json.loads(self.fetch_text(url))
+                    closes = _extract_yahoo_closes(payload)
+                    if len(closes) < 2:
+                        unknowns.append(f"macro source returned insufficient closes for {label}/{symbol}/{window_key}")
+                        continue
+                    change = (closes[-1] / closes[0] - 1) * 100
+                    item[f"change_{window_key}_pct"] = round(change, 2)
+                    if window_key == "1m":
+                        item["first"] = closes[0]
+                        item["latest"] = closes[-1]
+                    sources.append(url)
+                    window_ok = True
+                except Exception as exc:
+                    unknowns.append(f"macro source failed for {label}/{symbol}/{window_key}: {type(exc).__name__}: {exc}")
+            if window_ok:
+                # Cross-window quality: positive 1M but negative 3M = recent bounce in downtrend
+                if "change_1m_pct" in item and "change_3m_pct" in item:
+                    facts.append(
+                        f"{label}: 1M {item['change_1m_pct']:+.2f}% / 3M {item.get('change_3m_pct', 0):+.2f}% / 6M {item.get('change_6m_pct', 0):+.2f}%"
+                    )
+                items.append(item)
         if facts:
-            facts.append("external macro market proxies checked")
+            facts.append("external macro market proxies checked across 1M/3M/6M windows")
+        # Cross-asset divergence: TR-specific stress if BIST falls while USDTRY rises
+        bist = next((i for i in items if i["label"] == "BIST100"), None)
+        usdtry = next((i for i in items if i["label"] == "USDTRY"), None)
+        if bist and usdtry and bist.get("change_1m_pct", 0) < -5 and usdtry.get("change_1m_pct", 0) > 3:
+            facts.append("cross-asset signal: TR-specific stress (BIST↓ while USDTRY↑)")
+        vix = next((i for i in items if i["label"] == "VIX"), None)
+        if vix and vix.get("change_1m_pct", 0) > 30:
+            facts.append(f"cross-asset signal: VIX surged {vix['change_1m_pct']:+.0f}% over 1M (global risk-off)")
         return {"verified_facts": facts, "unknowns": unknowns, "items": items, "sources": sources}
 
     def _scan_rates_inflation(self) -> dict:
@@ -203,13 +241,15 @@ class ExternalScanner:
         unknowns = [] if matched else (["no recent fund-code-specific news items found in RSS scan"] if codes else ["no selected fund codes supplied"])
         return {"verified_facts": facts, "unknowns": unknowns, "items": matched}
 
-    def _derive_risks(self, macro: dict, rates: dict, news: dict) -> List[str]:
+    def _derive_risks(self, macro: dict, rates: dict, news: dict, kap_section: dict | None = None) -> List[str]:
         risks: List[str] = []
         for item in macro.get("items", []):
             if item.get("label") == "USDTRY" and item.get("change_1m_pct", 0) > 5:
                 risks.append("USDTRY rose more than 5% over 1M; check FX/risk regime before aggressive allocation")
-            if item.get("label") in {"Nasdaq", "BIST100"} and item.get("change_1m_pct", 0) < -8:
+            if item.get("label") in {"Nasdaq", "SP500", "BIST100"} and item.get("change_1m_pct", 0) < -8:
                 risks.append(f"{item.get('label')} fell more than 8% over 1M; equity-fund risk backdrop weakened")
+            if item.get("label") == "VIX" and item.get("change_1m_pct", 0) > 30:
+                risks.append("VIX surged over 30% in 1M; volatility regime elevated")
         for item in rates.get("items", []):
             policy = item.get("policy_rate")
             inflation = item.get("inflation_yoy")
@@ -219,7 +259,18 @@ class ExternalScanner:
         for keyword in ["tasfiye", "durdur", "soruşturma", "manipülasyon"]:
             if keyword in titles:
                 risks.append(f"news scan contains risk keyword: {keyword}")
+        if kap_section:
+            for item in kap_section.get("items", []):
+                if item.get("structural"):
+                    code = item.get("code") or "(no code)"
+                    risks.append(f"KAP structural disclosure: {code} — {str(item.get('title', ''))[:120]}")
         return risks
+
+    def _scan_kap(self, codes: List[str]) -> dict:
+        try:
+            return self.kap_provider.fetch_recent(codes, days=30)
+        except Exception as exc:
+            return {"verified_facts": [], "unknowns": [f"KAP scan failed: {type(exc).__name__}: {exc}"], "items": [], "sources": []}
 
 
 def default_fetch_text(url: str, timeout: int = 20) -> str:

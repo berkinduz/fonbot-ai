@@ -25,6 +25,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, List
 
+from external_calendar import event_modifier
 from external_intelligence import ExternalIntelligenceAnalyzer
 
 
@@ -124,17 +125,28 @@ def load_external_context(path: Path | None, max_age_days: int = 3) -> ExternalC
     if intelligence.confidence_cap is not None:
         cap = min(cap, intelligence.confidence_cap) if cap is not None else intelligence.confidence_cap
 
+    # Calendar layer: pre-known event risk (TCMB MPC, TÜİK CPI, FOMC).
+    calendar = event_modifier(within_days=7)
+    if calendar.upcoming:
+        verified.append(f"calendar: {len(calendar.upcoming)} known event(s) within 7 days")
+    if calendar.confidence_cap is not None:
+        cap = min(cap, calendar.confidence_cap) if cap is not None else calendar.confidence_cap
+    reasons = list(intelligence.reasons) + list(calendar.reasons)
+    triggers = list(intelligence.rerun_triggers) + list(calendar.rerun_triggers)
+    risk_total = intelligence.risk_penalty_delta + calendar.risk_delta
+    regime_total = intelligence.regime_score_delta + calendar.regime_delta
+
     return ExternalContextResult(
         status=status,
         verified_data=verified,
         unavailable_data=unavailable,
         user_provided_data=user_provided,
         confidence_cap=cap,
-        risk_penalty_delta=intelligence.risk_penalty_delta,
-        regime_score_delta=intelligence.regime_score_delta,
+        risk_penalty_delta=round(risk_total, 2),
+        regime_score_delta=round(regime_total, 2),
         avoid_funds=intelligence.avoid_funds,
-        reasons=intelligence.reasons,
-        rerun_triggers=intelligence.rerun_triggers,
+        reasons=reasons,
+        rerun_triggers=triggers,
         notes=notes,
         age_days=age_days,
     )

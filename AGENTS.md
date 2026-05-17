@@ -181,9 +181,14 @@ Unhealthy evolution is anything that bypasses user approval, ignores tests, or f
 | `portfolio/` | Append-only transaction ledger + derived state. Gitignored. |
 | `data/fundbot.sqlite` | Provider cache. Performance only, not source of truth. |
 | `context/current_external_context.json` | Latest scanner output. Gitignored. Refreshed by `--refresh-external-context` or auto when stale. |
-| `external_scan.py` | Yahoo + Google News fetcher. Pure data; no inference. |
-| `external_intelligence.py` | Translates scan into bounded modifiers (risk/regime deltas, confidence cap, avoid_funds). |
-| `external_context.py` | Gate that loads the scan, enforces freshness, runs intelligence. |
+| `external_scan.py` | Yahoo (10 sembol × 1M/3M/6M) + Google News + KAP fetcher. Pure data; no inference. |
+| `external_intelligence.py` | Translates scan into bounded modifiers with cross-source confirmation (KAP or 2+ sources = confirmed avoid). |
+| `external_context.py` | Gate that loads scan, enforces freshness, blends in calendar modifiers. |
+| `external_calendar.py` | Pre-known event awareness (TCMB MPC, TÜİK CPI, FOMC). Updated annually. |
+| `kap_provider.py` | KAP disclosure API + Google News `site:kap.org.tr` fallback. |
+| `breadth_analyzer.py` | Universe-internal regime signal (% positive 3M momentum). |
+| `fund_profiler.py` | TEFAS breakdown view → deterministic asset class detection. |
+| `article_fetcher.py` | Single-URL article fetcher for `--fetch-article`. AI operator reads body, optionally creates research note. |
 | `tests/` | Behavior tests. Run before every commit. |
 
 ---

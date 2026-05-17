@@ -139,18 +139,30 @@ Tam komut listesi: `python3 main.py --help`.
 3. **Crawler placeholder** — devre dışı (TEFAS web şeması değişirse hazır).
 4. **Manuel CSV / XLSX snapshot** — son çare, kullanıcı sağlamalı.
 
-### External context (otonom)
+### External context (otonom, çok katmanlı)
 
-İki katman:
+Engine her run'da kendi başına şunları çeker:
 
-1. **`external_scan.py`** — Yahoo Finance (USDTRY, Nasdaq, Gold, BIST100) + Google News RSS (TCMB faiz, enflasyon, fon-spesifik haber). Hiç kullanıcı girişi yok, network'tan çeker. Her run'da context bayatsa (default 3 gün) otomatik yeniler.
-2. **`external_intelligence.py`** — taranan veriyi bounded modifier'lara çevirir:
-   - BIST -%8'den kötü → risk +14, regime -12, confidence cap 75
-   - Real-rate gap < -10pp → risk +10, regime -8, cap 75
-   - "tasfiye / soruşturma / manipülasyon / işlem durdur" haberi → risk +25, regime -15, cap 55, fon avoid listesine eklenir
-3. **`external_context.py`** — gate: context yoksa/bayatsa confidence cap 70 uygular. Hard fail değil; engine yine ratio üretir, sadece güveni cap'ler.
+1. **Yahoo Finance** (10 sembol, 1M + 3M + 6M pencereler): USDTRY, EURTRY, Nasdaq, SP500, Gold, BIST100, US10Y, VIX, Brent, EM_Equity. Cross-asset divergence sinyalleri: BIST↓ + USDTRY↑ → "TR-spesifik stres".
+2. **Google News RSS** (TR): TCMB faiz, TÜİK enflasyon, market news, fon-spesifik aramalar (tasfiye/yönetim değişikliği/KAP duyurusu).
+3. **KAP (Kamuyu Aydınlatma Platformu)**: önce direkt API, başarısız olursa Google News'in `site:kap.org.tr` fallback'i. TR fon disclosure'larının otoriter kaynağı.
+4. **Calendar awareness** (`external_calendar.py`): TCMB MPC, TÜİK CPI, Fed FOMC tarihleri önceden biliniyor. Olay 7 gün içindeyse otomatik risk artar ve confidence azalır.
+5. **Breadth analyzer** (`breadth_analyzer.py`): yatırılabilir evrenin kaç yüzdesinin pozitif 3M momentum'a sahip olduğu — TR-spesifik rejim sinyali, makro proxy'lere bağımlı değil.
+6. **TEFAS breakdown enrichment** (`fund_profiler.py`): pytefas `breakdown` view'ı ile her fonun gerçek asset allocation'ı çekilir; money market detection deterministik olur (keyword bağımlılığı düşer).
 
-`research/` katmanı (kullanıcı manual notları) hâlâ var ama **opsiyoneldir** — engine onsuz da %100 çalışır.
+Tüm bunlar **bounded modifier**'lara dönüşür:
+
+- BIST/Nasdaq -%8'den kötü, persistent → risk +14×1.5, regime -12×1.5, cap 70
+- Real-rate gap < -10pp → risk +10, regime -8, cap 75
+- VIX +%30 → risk +10, regime -6, cap 75
+- Brent +%12 → risk +5 (enflasyon headwind)
+- TCMB MPC 1 gün sonra → risk +5, regime -4, cap 80
+- KAP'ta yapısal duyuru veya 2+ kaynak doğrulamalı yapısal haber → risk +25, regime -15, cap 55, fon **avoid_funds**'a eklenir
+- Tek kaynak yapısal haber → "candidate" not, avoid YOK (cross-source confirmation kuralı)
+
+Sonuç: aynı backend'de hiçbir tahmini veri yok; her modifier'ın açık bir reason cümlesi var ve scanner'ın hangi URL'den geldiği `sources` listesinde duruyor.
+
+`research/` katmanı (kullanıcı manual notları) hâlâ var ama **opsiyoneldir** — engine onsuz da %100 çalışır. Article'ları AI agent okuyup notlaştırmak isterse `--fetch-article URL` flag'i var.
 
 Ardışık TEFAS-backed provider'lar arasında konfigüre edilebilir cooldown (default 12s) — aynı backend hammer'lanmaz.
 
@@ -208,9 +220,14 @@ allocator.py                     iki-bacaklı dağılım (band'lar weights.json'
 reporter.py                      markdown rapor + decisions.jsonl
 portfolio_store.py               append-only işlem defteri + türetilmiş state
 portfolio_manager.py             stateful süreklilik katmanı
-external_scan.py                 OTONOM Yahoo + Google News scanner
+external_scan.py                 OTONOM Yahoo (10 sembol × 1M/3M/6M) + Google News + KAP scanner
 external_intelligence.py         scan → bounded modifier (risk/regime/cap/avoid)
-external_context.py              gate: context yükleme + freshness + confidence cap
+external_context.py              gate: context yükleme + freshness + calendar entegrasyonu
+external_calendar.py             TCMB MPC / TÜİK CPI / FOMC pre-known event awareness
+kap_provider.py                  KAP disclosure API + Google News site:kap.org.tr fallback
+breadth_analyzer.py              evren-içi rejim sinyali (% pozitif 3M momentum)
+fund_profiler.py                 TEFAS breakdown view → deterministik asset class detection
+article_fetcher.py               AI agent için tek-makale fetcher (HTML → plain text)
 research_store.py                OPSİYONEL kullanıcı sağlamalı dış bağlam (research/)
 strategy_loader.py               weights.json yükleme + default fallback
 strategy/                        weights.json + history.jsonl

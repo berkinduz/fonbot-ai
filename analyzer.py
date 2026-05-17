@@ -38,6 +38,19 @@ class FundAnalyzer:
             notes.append("high volatility")
         if max_drawdown < -0.25:
             notes.append("large trailing drawdown")
+        # Anomaly detection: split / corporate action / data spike
+        abs_returns = returns.abs()
+        if len(abs_returns) and abs_returns.max() > 0.10:
+            jumps = int((abs_returns > 0.10).sum())
+            notes.append(f"price anomaly: {jumps} day(s) with >10% absolute return — possible split/corporate action/data spike")
+        try:
+            date_series = pd.to_datetime(df["date"]).sort_values().reset_index(drop=True)
+            gaps = date_series.diff().dt.days.dropna()
+            max_gap = int(gaps.max()) if not gaps.empty else 0
+            if max_gap > 14:
+                notes.append(f"price gap: longest interval between observations is {max_gap} days")
+        except Exception:
+            pass
         data_quality = "ok" if len(prices) >= 6 else "thin"
         return FundMetrics(
             code=code,

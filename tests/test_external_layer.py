@@ -90,10 +90,14 @@ class ExternalIntelligenceTests(unittest.TestCase):
         self.assertIsNotNone(result.confidence_cap)
         self.assertTrue(any("BIST100" in r for r in result.reasons))
 
-    def test_structural_keyword_adds_avoid_fund(self):
+    def test_structural_keyword_confirmed_by_two_sources_adds_avoid(self):
+        # Cross-source confirmation: 2+ sources for the same fund → confirmed avoid
         ctx = {
             "sections": {
-                "fund_specific": {"items": [{"title": "AFT fonu tasfiye sürecine girdi", "query": "AFT fon"}]}
+                "fund_specific": {"items": [
+                    {"title": "AFT fonu tasfiye sürecine girdi", "query": "AFT fon", "source": "news", "code": "AFT"},
+                    {"title": "AFT için soruşturma açıldı", "query": "AFT fon", "source": "news", "code": "AFT"},
+                ]}
             }
         }
 
@@ -163,6 +167,7 @@ class ExternalContextGateTests(unittest.TestCase):
             self.assertTrue(any("stale" in u for u in result.unavailable_data))
 
     def test_structural_news_in_context_propagates_avoid_funds(self):
+        # Single KAP source confirms avoid (no second source needed)
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "ctx.json"
             payload = {
@@ -173,7 +178,13 @@ class ExternalContextGateTests(unittest.TestCase):
                     "market_news": {"verified_facts": ["x"], "items": []},
                     "fund_specific": {
                         "verified_facts": ["x"],
-                        "items": [{"title": "AFT yönetim değişikliği", "query": "AFT fon"}],
+                        "items": [{
+                            "title": "AFT yönetim değişikliği",
+                            "query": "KAP IGS Fon",
+                            "source": "kap",
+                            "structural": True,
+                            "code": "AFT",
+                        }],
                     },
                 },
                 "sources": ["https://example.com"],
