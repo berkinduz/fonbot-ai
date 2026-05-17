@@ -1,0 +1,27 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List
+
+
+@dataclass(frozen=True)
+class FundbotConfig:
+    """Central parameters. Conservative defaults are avoided; risk is disciplined, not timid."""
+
+    root_dir: Path = Path(__file__).resolve().parent
+    cache_path: Path = Path(__file__).resolve().parent / "data" / "fundbot.sqlite"
+    reports_dir: Path = Path(__file__).resolve().parent / "reports"
+    history_path: Path = Path(__file__).resolve().parent / "reports" / "decisions.jsonl"
+    min_history_months: int = 6
+    lookback_days: int = 230
+    tefas_kinds: tuple[str, ...] = ("YAT",)
+    cache_stale_after_days: int = 7
+    provider_conflict_tolerance: float = 0.01
+    manual_snapshot_path: Path | None = None
+    min_aum: float = 0.0
+    anomaly_return_abs_limit: float = 2.5
+    money_market_keywords: List[str] = field(default_factory=lambda: ["para piyasası", "money market", "likit", "kısa vadeli"])
+    defensive_min_score: float = 50
+    aggressive_ratios: tuple[float, ...] = (0.90, 0.75, 0.65, 0.50, 0.35)
+    verified_quant_label: str = "TEFAS/library price history cached or fetched by local fundbot"
