@@ -1,279 +1,201 @@
 # Fonbot Nasıl Çalışır?
 
-Fonbot, TEFAS fon evreninden veri çekip, nicel (quant) skorlamayla aylık fon dağılımı önerisi üretir. Kullanıcıdan gelen doğal Türkçe komutları işler, karar ve portföy yönetimini kolaylaştırır.
+Bu dosya bir **kullanıcı oturumunun** baştan sona nasıl ilerlediğini gösterir. Mimari özet için [README](README.md), AI operator'ün uyduğu kurallar için [AGENTS.md](AGENTS.md).
 
 ---
 
-## 1. Temel Akış: Aylık Fon Seçimi
+## Sistemin iki katmanı
 
-### Adım 1: Kullanıcı Komutu
+| Katman | Kim | Ne yapar |
+|---|---|---|
+| **Engine** | Python (deterministik) | TEFAS verisi çeker, otonom dış kaynakları tarar, skorlar, oran üretir |
+| **AI Operator** | Claude Code / Codex / Gemini CLI | Engine'i çağırır, raporu okur, kullanıcıyla insan dilinde konuşur |
+| **Kullanıcı** | Sen | Kararı verir, işlemi elle yapar, strateji değişikliklerini onaylar |
 
-```
-"fonbot çalışsın, bu ayın fonunu seçelim"
-```
-
-### Adım 2: Fonbot Durumu Kontrol Eder
-
-Fonbot AGENTS.md'yi okur ve `python3 main.py --status` komutunu çalıştırır, durumu özetler:
-
-- **Cache yaşı:** 2 fon, en taze fiyat 15 Mayıs
-- **Taze veri ihtiyacı:** Bu ay için full universe çekmek gerekli
-- **Önceki karar:** Kayıtlı yok
-- **Portföy pozisyonu:** Yok
-- **Strateji:** v1, default ağırlıklar
-- **Research notu:** 1 nota (Grok'tan AFT teknoloji) — rapora ek olarak eklenecek
-- **Uyarı:** TEFAS rate-limit'i nedeniyle dakikalar sürecek
-
-**Kullanıcıdan onay ister:**
-
-```
-Başlayayım mı?
-```
-
-### Adım 3: Kullanıcı Onayı
-
-```
-"evet başla"
-```
-
-### Adım 4: Fonbot Rapor Üretir
-
-`python3 main.py --force-refresh` ile veri çeker, 3–5 dakika bekler, raporu üretir.
-
-**Sonuç özeti:**
-
-| Bileşen           | Değer                                    |
-| ----------------- | ---------------------------------------- |
-| **Aksiyon**       | BUY                                      |
-| **Agresif Fon**   | AFT (Ak Portföy Yeni Teknolojiler) — %75 |
-| **Para Piyasası** | TPP (TEB Para Piyasası) — %25            |
-| **Güven Skoru**   | 78/100                                   |
-
-**Engine'in Nedenleri:**
-
-- 3 aylık momentum: +%18, 6 ay: +%34 — devamlılık güçlü
-- Trend MA'lar üstünde, slope pozitif
-- Volatilite yüksek (%42 annualized) ama hesaplanan risk cezası %75 bandını korumaya yetiyor
-- Makro rejim 'mixed' (60/100), agresif bandı bir aşağıya çekmedi
-- **Research notu:** Grok'tan yarı iletken Q3 toparlanma beklentisi — bağlam olarak eklendi, skoru etkilemedi
-
-**Yatırım Örneği:**
-
-```
-100.000 TL yatıracaksan:
-  75.000 TL → AFT
-  25.000 TL → TPP
-
-Tutarın farklıysa oranı uygula.
-```
-
-**Detaylı Rapor:**
-
-```
-reports/2026-05-17_fundbot-abc123.md
-```
+Engine her seferinde aynı veriden aynı çıktıyı üretir. AI operator durumu yorumlar ve sıradaki adımı önerir. Kullanıcı son sözü söyler.
 
 ---
 
-## 2. Portföy İşlemleri: Alım/Satım Kaydı
+## Tipik bir oturum — aylık karar
 
-### Kullanıcı İşlem Bildiriyor
+**Sen**: "fonbot çalışsın, bu ayın fonunu seçelim"
 
-```
-"tamam, 50k AFT aldım az önce"
-```
+**AI agent** (içsel: AGENTS.md okur, `python3 main.py --status` çağırır, çıktıyı sindirir)
 
-### Fonbot Onay İster
+> "Engine durumu:
+> - Cache 2 hafta yaşında, full universe için taze fetch lazım.
+> - External context: status=ready age=0d risk_delta=+9 regime_delta=-6.
+> - 4 gün sonra TCMB PPK toplantısı — confidence bilinçli olarak cap'lenecek.
+> - Portföyünde kayıtlı pozisyon yok.
+> - Strateji v1.
+>
+> TEFAS rate-limit'i nedeniyle ilk fetch dakikalar sürer. Başlayayım mı?"
 
-```
-Anladığım kadarıyla AFT'den 50.000 TL alım yaptın, bugün (17 Mayıs), doğru mu?
-Onaylarsan portföy state'ine kaydedeceğim.
-```
+**Sen**: "evet"
 
-### Kullanıcı Onaylar
+**AI agent** (`python3 main.py --force-refresh` çalıştırır, ~3-5 dakika sürer)
 
-```
-"evet"
-```
+Bu süre boyunca engine arka planda şunları yapar:
+1. pytefas üzerinden tüm YAT fon evrenini çeker (~600 fon)
+2. Fund profiler ile her fonun gerçek asset breakdown'ını okur (deterministik money market detection)
+3. Yahoo Finance'ten 10 makro sembolü 3 farklı pencerede tarar
+4. Google News RSS'ten TR faiz/enflasyon/fon haberlerini tarar
+5. KAP disclosure'larını çeker (API blok atarsa Google News fallback)
+6. Calendar'dan 7 gün içindeki TCMB/TÜİK/FOMC olaylarını kontrol eder
+7. Breadth analyzer evren genelindeki momentum durumunu hesaplar
+8. Tüm dış sinyalleri bounded modifier'lara çevirir (risk delta, regime delta, confidence cap, avoid_funds)
+9. Skorlar, allocator'a verir, raporu yazar
 
-### Fonbot Kaydeder
+**AI agent** (rapor hazır olunca)
 
-```bash
-python3 main.py --record-transaction \
-  --tx-code AFT \
-  --tx-amount 50000 \
-  --tx-date 2026-05-17 \
-  --tx-confirmed \
-  --tx-role main_opportunity
-```
-
-**İşlem tamamlandı:**
-
-- Portföy state güncellendi
-- Snapshot alındı
-- Eksik kalan taraf (TPP) hakkında soruş yapıldı
-
----
-
-## 3. Takip ve Durum Sorgulama
-
-### Kullanıcı Pozisyon Sorgular
-
-```
-"AFT nasıl gidiyor?"
-```
-
-_(2 hafta sonra)_
-
-### Fonbot Durumu Kontrol Eder
-
-```bash
-python3 main.py --status
-# cache yaşı, portföy state, gerekirse tek-fon refresh
-```
-
-**Rapor:**
-
-```
-Cache 2 hafta yaşında, AFT pozisyonun 50.000 TL maliyet.
-Son fiyat günlemesi gerekli. Taze veriye bakalım mı?
-```
-
-### Kullanıcı Onay Verir
-
-```
-"evet bak"
-```
-
-### Fonbot Veri Tazeler
-
-```bash
-python3 main.py --codes AFT,TPP --force-refresh
-```
-
-**Sonuç:**
-
-```
-Momentum hâlâ güçlü, AFT skoru 79 (önceki 81).
-Hafif düşüş ama trend bozulmuş değil.
-
-Portfolio decision: HOLD
-Switch advantage düşük, yeni para girişin yoksa aksiyon önerimi yok.
-```
+> "Tamamlandı:
+>
+> **BUY** — Sıfırdan başlasaydık dağılım:
+> - **Agresif**: AFT (Ak Portföy Yeni Teknolojiler) — %75
+> - **Para piyasası**: TPP (TEB Para Piyasası) — %25
+> - Güven: 72/100 *(TCMB toplantısı 4 gün sonra olduğu için 80'den 72'ye cap'lendi)*
+>
+> Engine'in kelimeleriyle ana sebepler:
+> - 3 aylık momentum +%18, 6 ay +%34 — devamlılık güçlü
+> - Trend MA'lar üstünde, slope pozitif
+> - Breadth: 'constructive' (67/100, %62 fon pozitif 3M)
+> - External: BIST 6M +%34 destekleyici, ancak Brent 6M +%70 enflasyon headwind'i için risk +5
+>
+> 100.000 TL yatıracaksan: 75.000 AFT + 25.000 TPP. Tutarın farklıysa oranı uygula.
+>
+> Rapor: `reports/2026-05-17_fundbot-abc123.md`"
 
 ---
 
-## 4. Research Notu Ekleme
+## Senaryo: işlem kaydetme
 
-### Kullanıcı Dış Araştırma Paylaşır
+**Sen**: "tamam, 50k AFT aldım az önce"
+
+**AI agent**: "Anladığım kadarıyla AFT'den 50.000 TL alım yaptın, bugün (17 Mayıs), doğru mu? Onaylarsan portföy state'ine kaydedeceğim."
+
+**Sen**: "evet"
+
+**AI agent** (`python3 main.py --record-transaction --tx-code AFT --tx-amount 50000 --tx-date 2026-05-17 --tx-confirmed --tx-role main_opportunity`)
+
+> "Kaydettim. Snapshot da alındı. TPP tarafını da alacak mısın?"
+
+Hard rule: AI agent kullanıcının "evet" demediği bir işlemi state'e yazmaz. Pending kayıt history'e düşer ama `portfolio_state.json` değişmez.
+
+---
+
+## Senaryo: ay içinde takip
+
+**Sen** (2 hafta sonra): "AFT nasıl gidiyor?"
+
+**AI agent** (içsel: `--status`, ardından cache yaşına göre tek-fon refresh)
+
+> "Status: AFT pozisyonun 50.000 TL maliyet, cache 2 hafta yaşında. Tek fon için taze fetch'leyim, hâlâ HOLD mu yoksa momentum bozulduysa REDUCE mı görürüz."
+
+**Sen**: "bak"
+
+**AI agent** (`python3 main.py --codes AFT,TPP --force-refresh`)
+
+> "Momentum hâlâ güçlü, AFT skoru 79 (önceki 81'den hafif düşüş). Trend bozulmamış. Portfolio decision: **HOLD**. Yeni para girişin yoksa aksiyon önerimi yok.
+>
+> Geçen snapshot'tan bu yana değişim: yok (AFT maliyetinde değişiklik olmamış)."
+
+---
+
+## Senaryo: yeni Grok cevabı geldiğinde
+
+**Sen**: "Grok'a yarı iletken sektörünü sordum, şu cevabı verdi: [uzun text]"
+
+**AI agent**: "Kaynak Grok, AFT etrafında, relevance medium olarak işaretleyeyim mi?"
+
+**Sen**: "olur"
+
+**AI agent** (notu stdin üzerinden `--record-research`'e besler)
+
+> "Kaydettim (`research/2026-05-31_grok_yariletken-q3.md`). Sonraki karar koşulduğunda otomatik bağlam olarak rapora girecek.
+>
+> Hatırlatma: Bu not quant skoru etkilemez — engine zaten Yahoo + Google News + KAP'tan kendi başına bağlam topluyor. Senin notun rapora ek bir paragraf olarak çıkacak."
+
+---
+
+## Senaryo: geçmişin değerlendirilmesi
+
+**Sen** (3 ay sonra): "şu ana kadarki önerilerimiz tutmuş mu?"
+
+**AI agent** (`python3 main.py --backtest --backtest-window 30`)
+
+> "3 karar değerlendirildi (30 günlük pencere):
+>
+> - **Ortalama portföy getirisi**: +%4.2
+> - **Money market'e karşı outperformance**: +%2.8 (hit rate 67%)
+> - **Top-3 equal-weight baseline'a karşı**: +%0.5 (hit rate 33%)
+>
+> Yorum: Money market'i geçtik ama top-3 baseline'a karşı zayıfız. Bu, ya konsantrasyonun çok yüksek (tek fona %75) ya da aday seçiminin top-3'ten farklılaşmasında değer kaybettiği anlamına gelir. Bir tur daha geçtikten sonra ağırlıkları gözden geçirmeyi öneririm."
+
+Backtester sahte hassasiyet üretmez — yetersiz cache'lenmiş fiyat varsa "skipped" olarak rapor eder.
+
+---
+
+## Senaryo: strateji değişikliği
+
+**Sen**: "3M ağırlığı bana çok yüksek geliyor, 0.45'ten 0.35'e indirelim. 6M 0.25'ten 0.35'e çıksın."
+
+**AI agent**:
+> "Bu değişiklik konvansiyonu tersine çevirmez ama motoru kısa vadeli rotasyondan ziyade trend persistence'ına yöneltir. Etki:
+> - Kısa süreli hızlı yükselen fonlar daha az tercih edilir
+> - 6 aylık trendi tutarlı fonlar öne çıkar
+> - Volatil fırsatlar gözden kaçabilir
+>
+> `strategy/weights.json`'u değiştirip `strategy/history.jsonl`'a şu reason ile loglayayım mı: 'kullanıcı daha sabırlı momentum istiyor, 3M↓ 6M↑'? Testleri de çalıştırıp raporlarım."
+
+**Sen**: "yap"
+
+**AI agent** (weights.json edit → history.jsonl append → `python3 -m unittest discover -s tests` → `--status`)
+
+> "Yapıldı, 57/57 test geçti. Strategy v2, history'e kaydedildi. Sonraki kararda yeni ağırlıklarla skorlanacak."
+
+---
+
+## Veri akışı — bir koşumda
 
 ```
-"Grok'a soft-landing senaryosu için sordum, şu cevabı verdi:
-[yapıştırılan uzun metin]"
-```
-
-### Fonbot Kaynağı ve Önem Derecesini Sorar
-
-```
-Notu işliyorum:
-- Kaynak: Grok
-- İlgili fonlar: AFT etrafında
-- ABD makro etkili
-→ Relevance: medium olarak işaretleyeyim, uygun mu?
-```
-
-### Kullanıcı Onaylar
-
-```
-"tamam"
-```
-
-### Fonbot Kaydeder
-
-```bash
-python3 main.py --record-research \
-  --research-topic soft-landing-grok-may \
-  --research-source grok \
-  --research-relevance medium \
-  --research-funds AFT \
-  --research-body-file /tmp/note.md
-```
-
-**Sonuç:**
-
-```
-Kaydettim. Sonraki karar koşulduğunda otomatik bağlam olarak rapora girecek.
-Skoru etkilemeyecek — quant primary, narrative tertiary.
+[Engine başlar]
+   │
+   ├─► pytefas / direct TEFAS  ────► tüm fon fiyatları + asset breakdown
+   ├─► Yahoo Finance (paralel)  ───► 10 sembol × 3 pencere
+   ├─► Google News RSS         ────► TR faiz/enflasyon/haber
+   ├─► KAP API → fallback      ────► fon disclosure'ları
+   ├─► Calendar (lokal)        ────► 7 gün içindeki olaylar
+   │
+   ├─► Universe builder + fund profiler  → yatırılabilir evren
+   ├─► Analyzer (per-fund)              → momentum/trend/volatilite + anomaly
+   ├─► Breadth analyzer                 → evren-içi rejim sinyali
+   ├─► External intelligence            → bounded modifier'lar (cross-source confirmation)
+   ├─► External context gate            → freshness check + confidence cap
+   │
+   ├─► Scorer + Allocator               → 1 agresif + 1 money market + oran
+   ├─► Portfolio manager                → mevcut state ile karşılaştır + snapshot diff
+   ├─► Reporter                         → markdown rapor + decisions.jsonl append
+   │
+   └─► [Engine biter]  →  AI agent raporu okur → kullanıcıya açıklar
 ```
 
 ---
 
-## 5. Strateji Evrimi
+## Karakter ve sınırlar
 
-### Kullanıcı Değişiklik Önerir
-
-```
-"3 aylık momentum ağırlığı bana çok yüksek geliyor.
-0.45'ten 0.35'e düşürelim, 6 aylık 0.25'ten 0.35'e çıksın.
-Daha sabırlı bir motor olsun."
-```
-
-### Fonbot Etkisini Açıklar
-
-```
-Bu değişiklik konvansiyonu tersine çevirmez ama motoru
-momentum'un sürekliliğine daha çok güvenmeye iter.
-
-Etki:
-- Kısa süreli hızlı yükselen fonlar göreceli olarak daha az tercih edilir
-- 6 aylık trendi tutarlı fonlar öne çıkar
-- Volatil fırsatlar (kısa süreli rotasyon) gözden kaçabilir
-
-strategy/weights.json'u değiştirip strategy/history.jsonl'a
-şu reason ile loglayayım mı:
-'kullanıcı daha sabırlı bir momentum istiyor, 3M↓ 6M↑'?
-Testleri de koşturup raporlarım.
-```
-
-### Kullanıcı Onaylar
-
-```
-"yap"
-```
-
-### Fonbot Değişikliği Uygular
-
-```bash
-# 1. weights.json düzenlenir
-# 2. history.jsonl'a log eklenir
-# 3. Testler çalıştırılır
-python3 -m unittest discover -s tests
-# 4. Durum kontrol edilir
-python3 main.py --status
-```
-
-**Sonuç:**
-
-```
-Yapıldı, 21/21 test geçti. Strategy v2, history'e kaydedildi.
-Sonraki kararda yeni ağırlıklarla skorlanacak.
-```
+- Kullanıcı **doğal Türkçe** konuşur, komut yazmaz.
+- AI agent her oturumun ilk adımında **`--status`** çağırır (orient olmak için).
+- AI agent quant'ın kelimeleriyle "neden" der; "ne yapayım" yorumunu kendisi katar.
+- Her state-mutating aksiyon (transaction, strateji değişikliği) **kullanıcı onayı** ister.
+- AI agent **uydurmaz**: external scanner'ın getirmediği hiçbir piyasa verisini icat etmez.
+- Engine **otonom**: external scanner için kullanıcı girişi gerekmez. `research/` katmanı tamamen opsiyoneldir.
+- Cache yalnızca performans için, gerçeklik kaynağı değil. Bayat cache otomatik bloklanır.
+- Hard rule: dış veri quant skoru asla geçersiz kılmaz; sadece confidence ve risk delta uygular.
 
 ---
 
-## 6. Temel Karakteristikler ve Kurallar
+## Özet
 
-| Kural                      | Açıklama                                                                            |
-| -------------------------- | ----------------------------------------------------------------------------------- |
-| **Doğal Türkçe**           | Kullanıcı komut yazmaz, doğal dil konuşur                                           |
-| **Durum → Onay → Aksiyon** | Fonbot önce durumu özetler, onay alır, sonra işlem yapar                            |
-| **Engine'in Sözü**         | "Neden" sorularında engine'in kelimeleriyle yanıt verir                             |
-| **Explicit Onay**          | Her state-mutating işlem (transaction, strateji) için kullanıcıdan açık onay alınır |
-| **Research ≠ Skor**        | Research notları sadece bağlam olarak eklenir, skoru etkilemez                      |
-| **Veri Uydurmaz**          | Kullanıcıdan veya engine'den gelen bilgi dışında hiçbir şey uydurmaz                |
+Sen miktarı / niyeti söylersin. AI agent engine'i çağırır, raporu okur, sana Türkçe özetler. Engine arka planda TEFAS + Yahoo + Google News + KAP + calendar verisini otonom toplar, bounded modifier'lara çevirir, ratio üretir. Trade'i sen elle yaparsın, onayını AI agent'a iletirsin, bir sonraki ay döngü baştan başlar.
 
----
-
-## 📝 Özet
-
-Fonbot, kullanıcıdan gelen doğal komutları engine'e çevirir, karar ve portföy yönetimini şeffaf ve izlenebilir şekilde yürütür. Tüm önemli adımlar kullanıcı onayıyla ilerler, engine'in ürettiği gerekçeler doğrudan aktarılır.
+Her şey görünür: kararlar `reports/decisions.jsonl`'da, işlemler `portfolio/transaction_history.jsonl`'da, strateji değişiklikleri `strategy/history.jsonl`'da. Hiçbir şey gizli değil, hiçbir şey kullanıcı onayı olmadan kalıcı değişmiyor.
