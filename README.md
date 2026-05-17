@@ -1,26 +1,49 @@
 # fonbot-ai
 
-Amatör yatırımcılar için lokal çalışan, taktiksel bir fon tahsis motoru.
+**AI agent'lar tarafından çalıştırılmak üzere tasarlanmış, taktiksel TEFAS fon tahsis motoru.**
 
-Hedef sorun basit: **elinde bir miktar para var, nakit olarak beklesin istemiyorsun, ama hangi fona koyacağına da karar veremiyorsun.** Fonbot bu boşluğu dolduruyor — TEFAS'taki tüm yatırılabilir YAT fon evrenini (yüzlerce fon) momentum / trend / volatilite / rejim üzerinden skorluyor ve sana **1 agresif ana fon + 1 düşük-risk para piyasası fonu** ile net bir oran döndürüyor. Tek karar, iki bacak, bitti.
+Fonbot bir CLI tool değil — bir **engine**. İnsan kullanıcı doğrudan terminale girip Python komutu yazmaz. Bunun yerine bir **AI operator** (Claude Code, Codex, Gemini CLI, Hermes, OpenHands, vs.) fonbot'u çalıştırır, çıktısını okur, kullanıcıya insan dilinde açıklar.
 
-Motor **oran üretir, tutar değil**. Sana "elindeki paranın %75'ini şu fona, %25'ini şu para piyasası fonuna" der. Kaç TL'n olduğunu bilmek zorunda değil — 5.000 TL'n de olabilir, 500.000 TL'n de; oran aynı, çarpmayı sen yaparsın. Alım-satımı sen banka / aracı kurum uygulamandan elle yapıyorsun.
+Saf Python karar veremez. AI agent karar veremez (her sefer farklı çıkarır). İkisi bir arada → güçlü: Python deterministik skorlama yapar, AI agent stratejiyi evrimleştirir, harici bağlamı entegre eder, kullanıcıyla konuşur.
 
-Bu bir **karar-destek aracı**, otomatik trader değil. Hesabına bağlanmıyor, emir göndermiyor, para hareket ettirmiyor. Aynı zamanda **bilmediği şeyi biliyormuş gibi de yapmıyor** — uydurma haber yok, hayali sentiment yok, sahte "canlı veri" yok. TEFAS erişilemezse, açıkça söylüyor.
+## Kullanım modeli
 
-### Kimin için
+```
+Kullanıcı  ──"bu ayın fonunu seçelim"──►  AI agent  ──python3 main.py──►  Engine
+                                              │                              │
+                                              ◄──── markdown rapor ──────────┘
+                                              │
+Kullanıcı  ◄──"şu fonu %75, şuna %25 öner, ──┘
+                ana sebebi şu..."
+```
 
-- Elinde nakit duruyor ama "bir fon seçeyim" kararını her ay yeniden vermek istemeyen amatör yatırımcılar.
-- "Hangi fon iyi?" sorusuna duygusal değil, momentum / trend bazlı sistematik bir cevap arayanlar.
-- Tek bir aracın kendilerini kurtarmasını beklemeyen, kararı kendisi verecek ama önüne düzgün bir analiz koyulsun isteyenler.
+Engine ne yapar:
+- TEFAS'tan yüzlerce fonu çeker
+- Momentum / trend / volatilite / rejim üzerinden skorlar
+- 1 agresif ana fon + 1 düşük-risk para piyasası fonu seçer
+- Oran üretir (tutar değil — TL hesabını kullanıcı yapar)
+- Markdown rapor ve append-only JSONL karar history'si yazar
 
-### Kimin için değil
+AI operator ne yapar:
+- Doğru zamanda doğru komutu çağırır (`--status`, `--healthcheck`, `--record-research`, vs.)
+- Raporu okur, sebep-sonuç ilişkilerini kullanıcıya açıklar
+- Harici araştırmayı (Grok cevabı, X yorumu, haber) `research/` altına entegre eder
+- Kullanıcı strateji ayarı önerirse `strategy/weights.json`'u değiştirmek için onay alır, değiştirir, log'lar
+- Yeni provider / sinyal eklenmesi gerekirse `PROVIDER_TEMPLATE.md` / `SIGNAL_TEMPLATE.md`'yi takip eder
 
-- Aktif trader'lar (bu günlük alım-satım botu değil).
-- "Bana garantili kazandıracak fonu söyle" diyenler (garanti yok; bu sadece istatistiksel bir bias).
-- Kuruluma / terminal kullanımına zamanı / sabrı olmayanlar (şu an GUI yok — bkz. Yol haritası).
+Detaylı operator manual: [`AGENTS.md`](AGENTS.md).
 
-> **Not (Türkçe / Geçici kapsam):** Şu anki sürüm sadece **TEFAS** üzerinden çalışıyor, yani pratik olarak Türkiye'de yatırım yapanlar için kullanışlı. Yol haritasında provider katmanını genelleştirip NASDAQ / BIST / diğer borsalar ve kripto API'lerini eklemek var — sistem mimarisi zaten "primary + fallback provider" mantığıyla yazıldı, asıl iş yeni provider sınıfları eklemek.
+## Mevcut kapsam ve yol haritası
+
+**Şu an**: yalnızca **TEFAS** (Türkiye yatırım fonları). Pratik kullanıcı kitlesi: Türkiye'de TL ile yatırım yapanlar.
+
+**Yol haritası**: provider katmanı zaten "primary + fallback" mantığıyla `BaseDataProvider` interface'i üzerinden yazıldı. Yeni provider sınıfları eklenince motor değişmeden çalışır:
+
+- **NASDAQ / NYSE** — yfinance / Alpha Vantage / Polygon
+- **BIST hisse** — alternatif API'ler
+- **Kripto** — Binance / CoinGecko / CCXT
+- Daha sonra: çok varlık sınıfı portföy (şu anki "1 agresif + 1 money market" yerine N varlık × M aday)
+- Web UI / dashboard (şu an CLI-only, AI agent'lar üzerinden çalıştırılıyor)
 
 ## Neden var
 
@@ -30,50 +53,23 @@ Fonbot küçük ama savunulabilir bir tez üzerine kurulu:
 
 - **Momentum birincil sinyaldir.** 3 aylık momentum en yüksek ağırlığı taşır; 6 aylık devamlılığı teyit eder.
 - **Trend, volatilite, drawdown ve makro rejim modifier'dır** — yönü değil, *kanaat* ve *pozisyon büyüklüğünü* etkilerler.
-- **Sosyal / haber / sentiment üçüncül kaynaktır.** Kullanıcı dışarıdan bağlam getirebilir ama bu, quant skorlamayı asla geçersiz kılamaz.
+- **Sosyal / haber / sentiment üçüncül kaynaktır.** AI operator harici bağlam getirebilir ama bu, quant skorlamayı asla geçersiz kılamaz.
 - **Eksik veri, eksik veri olarak raporlanır.** Sistem görmediği şeyi uydurmaz.
 
-Çıktı bilinçli olarak dar: 1 ana fon, 1 para piyasası tamponu, 1 oran, 1 aksiyon. Leaderboard yok. Tez yazısı yok.
+Çıktı bilinçli olarak dar: 1 ana fon, 1 para piyasası tamponu, 1 oran, 1 aksiyon.
 
-## Bir run ne döner
+## Kimin için
 
-```
-SWITCH: zero-based AFT %75 + AFA %25 | report: reports/2026-05-17_fundbot-ab12cd34ef56.md
-```
+- "Elimde para var, nakit beklesin istemiyorum, hangi fona koyacağıma sistematik karar verilsin" diyen amatör yatırımcılar.
+- AI assistant (Claude Code / Codex / Gemini CLI / vs.) kullanan, bu assistant'ın aylık yatırım kararını yönetmesini isteyen kullanıcılar.
 
-Bu tek satırın arkasındaki markdown raporu şunları içerir:
+## Kimin için değil
 
-- Seçilen agresif fon + para piyasası fonu + oran
-- Yüzlerce fon analiz edildikten sonra skorlarıyla birlikte top 3 aday
-- Neden bu dağılım (composite conviction kırılımı)
-- Eğer kayıtlı işlemin varsa portföy sürekliliği değerlendirmesi (BUY / HOLD / INCREASE / REDUCE / SWITCH / PARTIAL SWITCH)
-- Veri bütünlüğü bloğu: her fonu hangi provider verdi, ne doğrulandı, neye erişilemedi
-- Yeniden çalıştırma tetikleri — yeniden değerlendirmeyi gerektirecek somut koşullar
-
-Her karar `reports/decisions.jsonl`'a da append-only olarak yazılır.
-
-## Portföy biçimi
-
-Her karar tam olarak iki bacaktan oluşur:
-
-1. **Ana fırsat fonu** — agresif, en yüksek kanaatli taktiksel seçim.
-2. **Para piyasası fonu** — tampon / geçici park katmanı.
-
-Composite conviction'a göre dağılım bantları:
-
-| Kanaat | Agresif | Para Piyasası |
-|---|---|---|
-| Güçlü (≥80) | %90 | %10 |
-| İyi (≥70) | %75 | %25 |
-| Orta (≥58) | %65 | %35 |
-| Zayıf (≥45) | %50 | %50 |
-| Karışık | %35 | %65 |
-
-Motor %100 para piyasasına çekilmez. Her şey kötü görünüyorsa azaltır — saklanmaz.
+- Aktif trader'lar (günlük alım-satım botu değil).
+- "Bana garantili kazandıracak fonu söyle" diyenler (garanti yok).
+- AI assistant kullanmak istemeyen, doğrudan terminal kullanıcısı olmayı tercih edenler (mümkün ama hedef akış değil).
 
 ## Kurulum
-
-Python 3.10+ önerilir (3.9 da `from __future__ import annotations` sayesinde çalışıyor ama hedef değil).
 
 ```bash
 git clone https://github.com/berkinduz/fonbot-ai.git
@@ -81,121 +77,118 @@ cd fonbot-ai
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install pytefas yfinance  # opsiyonel ama şiddetle önerilir; pytefas birincil TEFAS provider'ı
+pip install pytefas yfinance pyyaml  # opsiyonel ama önerilir
 ```
 
-## Kullanım
+Sonrasında **Claude Code / Codex / Gemini CLI** içinden bu dizini aç ve AI agent'a "bu ayın fonunu seçelim" / "Grok'tan şunu aldım, sisteme ekle" / "şu ağırlığı değiştirelim" gibi şeyler söyle. AI agent [`AGENTS.md`](AGENTS.md)'yi okuyup ne yapacağını bilir.
+
+## Engine CLI komutları (AI agent için)
+
+Bu komutlar normalde **AI agent tarafından çağrılır**. İnsan da elle çalıştırabilir ama hedef akış değil.
 
 ```bash
-# Standart öneri: TÜM TEFAS YAT evrenini (yüzlerce fon) analiz eder,
-# en iyi agresif fonu ve en iyi para piyasası fonunu seçer, oranı verir.
-# Tutar belirtmiyorsun; çıktı oran şeklinde gelir, kaç TL'n olduğu önemli değil.
-# TEFAS rate-limit'i (~6 istek/dk) nedeniyle ilk fetch dakikalar sürebilir;
-# sonraki çalıştırmalar cache sayesinde hızlıdır.
+# Engine durumu (her oturumun ilk adımı)
+python3 main.py --status
+
+# Aylık karar — tüm TEFAS YAT evrenini analiz eder, ratio üretir
 python3 main.py
 
-# Cache'i atla, taze çek
+# Cache'i atla, taze çek (TEFAS rate-limit'i nedeniyle dakikalar sürebilir)
 python3 main.py --force-refresh
 
-# (Opsiyonel/debug) Evreni belirli kodlarla sınırla — sanity check için.
-# Normal kullanımda gerekli değil; tüm evren default davranıştır.
-python3 main.py --codes AFT,AFA
-
-# Karar üretmeden sadece veri katmanını doğrula
+# Veri provider katmanını doğrula (karar üretmeden)
 python3 main.py --healthcheck
 
-# Stratejiyi tek cümlede açıkla
+# Kullanıcı bağlamını (Grok cevabı vs.) sisteme ekle
+echo "..." | python3 main.py --record-research \
+  --research-topic tech-fonlari-grok-q3 \
+  --research-source grok \
+  --research-relevance medium \
+  --research-funds AFT
+
+# Kullanıcının yaptığı işlemi kaydet (sadece confirmed olanlar state'i değiştirir)
+python3 main.py --record-transaction \
+  --tx-code AFT --tx-action BUY --tx-amount 42000 \
+  --tx-date 2026-05-20 --tx-confirmed --tx-role main_opportunity
+
+# Stratejiyi açıkla
 python3 main.py --explain
 ```
 
-### İşlem kaydetme
-
-Motor yalnızca senin açıkça onayladığın işlemlerden state tutar. Broker senkronu yok.
-
-```bash
-python3 main.py --record-transaction \
-  --tx-code AFT --tx-name "Ak Portföy Yeni Teknolojiler" \
-  --tx-action BUY --tx-amount 42000 --tx-date 2026-05-20 \
-  --tx-confirmed --tx-role main_opportunity
-```
-
-Onaysız kayıtlar history'e eklenir ama `portfolio/portfolio_state.json`'u değiştirmez.
+Tam komut listesi: `python3 main.py --help`.
 
 ## Veri bütünlüğü
 
 Provider sırası:
 
-1. **pytefas** — birincil, TEFAS'ın resmi JSON uçlarını kullanır; rate-limit'i biliyor.
-2. **Direct TEFAS JSON wrapper** — kendi 429 / boş body / decode hata yönetimi ve jitter'lı backoff'u olan fallback.
-3. **Crawler placeholder** — TEFAS web şeması yeniden doğrulanana kadar devre dışı.
-4. **Manuel CSV / XLSX snapshot** — son çare olarak kullanıcı sağlamalı import.
+1. **pytefas** — birincil, TEFAS resmi JSON uçları; rate-limit aware.
+2. **Direct TEFAS JSON wrapper** — fallback (429 / boş body / decode hatasına karşı jitter'lı backoff).
+3. **Crawler placeholder** — devre dışı (TEFAS web şeması değişirse hazır).
+4. **Manuel CSV / XLSX snapshot** — son çare, kullanıcı sağlamalı.
 
-Ardışık iki TEFAS-backed provider arasında konfigüre edilebilir bir cooldown vardır (default 12s) ki başarısız bir birincil, aynı backend'i hemen hammer'lamasın.
+Ardışık TEFAS-backed provider'lar arasında konfigüre edilebilir cooldown (default 12s) — aynı backend hammer'lanmaz.
 
-Cache bir performans / degraded-mode yardımcısıdır, gerçeklik kaynağı değil:
+Cache yalnızca performans yardımcısıdır:
+- Taze cache tekrar provider çağrısı yapmadan iş görür.
+- Bayat cache (default 7 gün) **bayat olarak raporlanır** ve **karar üretmeye uygun veri olarak engellenir**.
+- Provider çatışması (latest price'da tolerans üstü fark) varsa o fonun history'si bloklanır.
 
-- Taze cache, belirli kodlar için tekrar provider çağrısı yapmadan iş görür.
-- Bayat cache (konfigüre edilebilir eşik, default 7 gün) **bayat olarak raporlanır** ve **karar-üretmeye uygun veri olarak engellenir**.
-- İki provider en son fiyatta tolerans üstünde çatışırsa, o fonun geçmişi sessizce birinden seçilmek yerine bloklanır.
+Her rapor şunları **açıkça ayırır**: doğrulanmış veri / erişilemeyen veri / tahmini veri / kullanıcı sağlamalı veri.
 
-Her rapor şunları açıkça ayırır:
+Engine şunları **yapmaz**: piyasa/haber/sosyal sentiment uydurmak, erişimi olmayan API'lere erişiyormuş gibi davranmak, makro bağlam uydurmak, kullanıcı sağlamalı anlatıyı ana karar kaynağı olarak kullanmak.
 
-- doğrulanmış veri
-- erişilemeyen veri
-- tahmin / çıkarsanmış veri
-- kullanıcı sağlamalı veri
+## Stratejinin evrimi
 
-Motor şunları **yapmaz**:
+`strategy/weights.json` mutable. AI operator backtest sonuçlarını veya kullanıcı geri bildirimini değerlendirir, parametre değişikliği önerir. **Kullanıcı her değişikliği tek tek onaylar** — otomatik tuning yok (overfitting tuzağı).
 
-- piyasa / haber / sosyal sentiment uydurmak
-- erişimi olmayan dış API'lere erişiyormuş gibi davranmak
-- makro bağlam uydurmak
-- kullanıcı sağlamalı anlatıyı ana karar kaynağı olarak kullanmak
+Her değişiklik `strategy/history.jsonl`'a append-only loglanır: ne değişti, ne zaman, kim onayladı, neden.
 
-Yatırılabilir bir evren kurulamıyorsa motor `veri yok` döner ve eksik veri listesini gösterir. Bütün görünmek için bir şey uydurmaz.
+Yeni provider veya sinyal eklemek için: [`PROVIDER_TEMPLATE.md`](PROVIDER_TEMPLATE.md) ve [`SIGNAL_TEMPLATE.md`](SIGNAL_TEMPLATE.md).
 
 ## Portföy state modeli
 
-Gerçeklik kaynağı **sensin, ne yaptığını sen onaylarsın**. Otomatik reconciliation yoktur.
+Gerçeklik kaynağı **kullanıcının açık onayı**. Broker senkronu yok.
 
-Runtime'da oluşan dosyalar:
+Runtime dosyaları:
 
 ```
 portfolio/transaction_history.jsonl   # append-only defter
-portfolio/portfolio_state.json        # sadece onaylanmış işlemlerden türetilir
+portfolio/portfolio_state.json        # sadece onaylı işlemlerden türetilir
 portfolio/snapshots/*.json            # her onaylı değişiklikte snapshot
 ```
 
 Her aylık analiz iki ayrı soruya cevap verir:
+- **A)** *Sıfırdan başlasaydım hangi dağılımı seçerdim?*
+- **B)** *Mevcut pozisyonlarıma göre ne yapmalıyım?*
 
-- **A)** *Eğer bugün hiç pozisyonum olmasaydı, motor hangi dağılımı seçerdi?*
-- **B)** *Mevcut pozisyonlarıma göre en mantıklı aksiyon ne?*
-
-İki cevap farklı olabilir. Mevcut pozisyonlara sadakat ikramiyesi yoktur. Bir fon yalnızca güncel momentum / sıralama / rejim onu hâlâ destekliyorsa ve daha taze bir adaya geçiş avantajı küçükse tutulur.
-
-Desteklenen portföy aksiyonları: `BUY`, `HOLD`, `INCREASE`, `REDUCE`, `SWITCH`, `PARTIAL SWITCH`.
+Aksiyonlar: `BUY`, `HOLD`, `INCREASE`, `REDUCE`, `SWITCH`, `PARTIAL SWITCH`. Mevcut pozisyona sadakat ikramiyesi yok; fon yalnızca momentum/sıralama/rejim onu hâlâ destekliyorsa tutulur.
 
 ## Mimari
 
 ```
-main.py                          ince giriş noktası
-cli.py                           argüman ayrıştırma ve orkestrasyon
+main.py / cli.py                 entrypoint + AI operator komut yüzeyi
 config.py                        parametreler ve yollar
 data_fetcher.py                  provider orkestrasyonu + cache güvenliği
-data_providers.py                pytefas, direct TEFAS, crawler, manuel snapshot provider'ları
-data_provider_healthcheck.py     provider smoke check'leri (--healthcheck tarafından kullanılır)
-cache.py                         kaynak atfı + yaş metadata'sıyla SQLite depolama
+data_providers.py                pytefas, direct TEFAS, crawler, manuel snapshot
+data_provider_healthcheck.py     provider smoke check'leri
+cache.py                         SQLite + kaynak atfı + yaş metadata
 universe_builder.py              yatırılabilir evren filtreleme
-analyzer.py                      momentum / trend / volatilite / drawdown metrikleri
-scorer.py                        fırsat ve para piyasası skorlama
-regime_detector.py               hafif makro rejim modifier'ı
-allocator.py                     iki-bacaklı dağılım kararı
-reporter.py                      markdown rapor + append-only JSONL karar history'si
-backtester.py                    basit aylık getiri değerlendirme yardımcıları
+analyzer.py                      momentum / trend / volatilite / drawdown
+scorer.py                        skorlama (ağırlıklar strategy/weights.json'dan)
+regime_detector.py               makro rejim modifier
+allocator.py                     iki-bacaklı dağılım (band'lar weights.json'dan)
+reporter.py                      markdown rapor + decisions.jsonl
 portfolio_store.py               append-only işlem defteri + türetilmiş state
-portfolio_manager.py             quant motorun üstünde stateful süreklilik katmanı
-prompts/                         dış araştırma prompt'ları (sadece gerektiğinde)
+portfolio_manager.py             stateful süreklilik katmanı
+research_store.py                kullanıcı sağlamalı dış bağlam (research/)
+strategy_loader.py               weights.json yükleme + default fallback
+strategy/                        weights.json + history.jsonl
+research/                        kullanıcı sağlamalı notlar (gitignored)
+prompts/                         dış araştırma için kullanıcı promptları
 tests/                           davranış testleri
+AGENTS.md                        AI operator manual
+PROVIDER_TEMPLATE.md             yeni provider eklerken takip edilecek
+SIGNAL_TEMPLATE.md               yeni sinyal eklerken takip edilecek
 ```
 
 ## Testler
@@ -204,35 +197,19 @@ tests/                           davranış testleri
 python3 -m unittest discover -s tests
 ```
 
-15 test, saniyenin çok altında koşuyor.
+21 test, saniyenin çok altında koşuyor.
 
-## Yol haritası
+## Bilinen sınırlar
 
-Şu anki hedef: TEFAS akışını sağlamlaştırmak ve gerçek kullanımda yaşatmak. Sıradakiler:
+- TEFAS public API'si haber vermeden değişebilir; provider katmanı güncellenmesi gerek.
+- TEFAS rate-limit (~6 req/dk) — geniş evren fetch'i kasıtlı yavaş.
+- Cache hit'te metadata kayboluyor (`name=code, category="cached"`) — money market keyword matching o durumda çalışmıyor. Bilinen bug, yakında düzelir.
+- Backtester şu an minimal. Gerçek aylık rebalance simülatörü yol haritasında.
+- Macro rejim katmanı bir modifier, tahmin motoru değil.
 
-- **Provider katmanını genelleştirmek** — `BaseDataProvider` arayüzü zaten taşınabilir. Bir sonraki tur yeni provider sınıfları:
-  - **NASDAQ / NYSE** — yfinance / Alpha Vantage / Polygon adaptörü
-  - **BIST hisse** — TradingView / Investing API'leri
-  - **Kripto** — Binance / CoinGecko / CCXT
-- **Çok varlık sınıfı portföy** — şu anki "1 agresif + 1 money market" yapısının yerine "N varlık sınıfı × M aday" matrisi.
-- **Sentiment / news provider** — şu an üçüncül kalan kullanıcı sağlamalı bağlamı yapılandırılmış bir provider haline getirmek (yine ana karar kaynağı değil).
-- **Daha akıllı backtester** — şu anki sürüm bilinçli olarak basit; gerçek bir aylık rebalance simülatörü gelmeli.
-- **Web UI / dashboard** — şu an CLI-only; karar history'sini grafiksel görmek için küçük bir önyüz.
+## Felsefe (tek cümlede)
 
-Yapı zaten "swappable provider" mantığıyla yazıldı; mesele TEFAS dışındaki dünyaları doğru abstract'lamak.
-
-## Bilinen sınırlar ve dürüst uyarılar
-
-- TEFAS public API'si haber vermeden değişebilir. Değiştiğinde provider katmanını güncellemek gerek.
-- TEFAS agresif rate-limit uyguluyor (~6 istek/dakika). Geniş evren fetch'i kasıtlı olarak yavaş; motor hız yerine doğruluğu tercih eder.
-- Para piyasası fonu seçimi temiz bir yield curve değil, son dönem getirisi proxy'si kullanıyor.
-- Makro rejim katmanı bir **modifier**'dır, tahmin motoru değil. Öyle muamele et.
-- Backtester bilinçli olarak basit. Parametre optimizasyonu için değil, sanity check için.
-- Broker müsaitlik durumu, fon talep pencereleri, lot kuralları ve emir kısıtları fonbot'a görünmüyor — onları kendin kontrol et.
-
-## Tek cümlede felsefe
-
-> Veri net olduğunda agresif, olmadığında savunmacı, ve aradaki farkı söylerken dürüst ol.
+> Veri net olduğunda agresif, olmadığında savunmacı, ve aradaki farkı söylerken dürüst ol. Karar Python'da, evrim AI agent'ta, onay insanda.
 
 ## Lisans
 
@@ -240,4 +217,4 @@ MIT.
 
 ## Sorumluluk reddi
 
-Bu kişisel bir karar-destek aracı, yatırım tavsiyesi değil. Senin vergi durumunu, likidite ihtiyacını veya risk kapasiteni bilmez. Açtığın her işlemden sen sorumlusun.
+Kişisel karar-destek aracı, yatırım tavsiyesi değil. Açtığın her işlemden sen sorumlusun.

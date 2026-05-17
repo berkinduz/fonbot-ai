@@ -1,0 +1,1 @@
+{"dt": "2026-05-17T00:00:00Z", "change_type": "initial", "version": 1, "reason": "Initial strategy parameters extracted from hard-coded defaults in scorer.py and allocator.py.", "approved_by": "berkinduz"}

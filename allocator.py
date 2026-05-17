@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import hashlib
-from typing import List
+from typing import List, Optional
 
 from config import FundbotConfig
 from models import AllocationDecision, DataIntegrity, FundLeg, utc_now_iso
+from strategy_loader import load_weights
 
 
 class FundAllocator:
-    def __init__(self, config: FundbotConfig):
+    def __init__(self, config: FundbotConfig, weights: Optional[dict] = None):
         self.config = config
+        cfg = weights or load_weights()
+        self.a = cfg["allocator"]
 
     def allocate(
         self,
@@ -22,17 +25,8 @@ class FundAllocator:
         risk_penalty: float,
         previous_code: str | None = None,
     ) -> AllocationDecision:
-        composite = max(0.0, min(100.0, opportunity_score * 0.70 + regime_score * 0.25 - risk_penalty * 0.05))
-        if composite >= 80:
-            aggressive_ratio = 0.90
-        elif composite >= 70:
-            aggressive_ratio = 0.75
-        elif composite >= 58:
-            aggressive_ratio = 0.65
-        elif composite >= 45:
-            aggressive_ratio = 0.50
-        else:
-            aggressive_ratio = 0.35
+        composite = max(0.0, min(100.0, opportunity_score * self.a["opportunity_weight"] + regime_score * self.a["regime_weight"] - risk_penalty * self.a["risk_penalty_weight"]))
+        aggressive_ratio = self._band_for(composite)
         defensive_ratio = round(1.0 - aggressive_ratio, 2)
         action = "BUY" if previous_code is None else ("HOLD" if previous_code == opportunity_code else "SWITCH")
         if previous_code == opportunity_code and aggressive_ratio < 0.65:
@@ -78,3 +72,9 @@ class FundAllocator:
             ],
             data_integrity=data_integrity,
         )
+
+    def _band_for(self, composite: float) -> float:
+        for band in sorted(self.a["bands"], key=lambda b: -b["min_conviction"]):
+            if composite >= band["min_conviction"]:
+                return float(band["aggressive_ratio"])
+        return float(self.a["bands"][-1]["aggressive_ratio"])
