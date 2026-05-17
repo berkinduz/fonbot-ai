@@ -1,0 +1,36 @@
+{
+  "schema": "fundbot_external_context_v1",
+  "date": "YYYY-MM-DD",
+  "codes": [],
+  "sections": {
+    "macro_regime": {
+      "verified_facts": [],
+      "unknowns": [],
+      "items": []
+    },
+    "rates_inflation": {
+      "verified_facts": [],
+      "unknowns": [],
+      "items": []
+    },
+    "market_news": {
+      "verified_facts": [],
+      "unknowns": [],
+      "items": []
+    },
+    "fund_specific": {
+      "verified_facts": [],
+      "unknowns": [],
+      "items": []
+    },
+    "execution_timing": {
+      "verified_facts": [
+        "TEFAS-listed funds are generally buyable; orders should be placed during business hours"
+      ],
+      "unknowns": [],
+      "items": []
+    }
+  },
+  "risks": [],
+  "sources": []
+}

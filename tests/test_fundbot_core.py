@@ -64,7 +64,7 @@ class FundbotCoreTests(unittest.TestCase):
         self.assertTrue(math.isclose(decision.aggressive_ratio + decision.defensive_ratio, 1.0))
         self.assertIn(decision.action, {"BUY", "HOLD", "SWITCH", "REDUCE", "INCREASE"})
         self.assertTrue(decision.data_integrity.verified_data)
-        self.assertIn("X/Twitter", " ".join(decision.data_integrity.unavailable_data))
+        self.assertIn("broker", " ".join(decision.data_integrity.unavailable_data).lower())
 
     def test_universe_builder_filters_short_stale_and_anomalous_histories(self):
         metadata = pd.DataFrame(
@@ -107,7 +107,7 @@ class FundbotCoreTests(unittest.TestCase):
             self.assertEqual(len(history_lines), 2)
             report_text = paths["report"].read_text(encoding="utf-8")
             self.assertIn("veri yok", report_text.lower())
-            self.assertIn("X/Twitter", report_text)
+            self.assertIn("broker", report_text.lower())
 
 
 if __name__ == "__main__":

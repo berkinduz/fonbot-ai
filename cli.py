@@ -10,6 +10,8 @@ from analyzer import FundAnalyzer
 from config import FundbotConfig
 from data_fetcher import TEFASDataFetcher
 from data_provider_healthcheck import run_provider_smoke_checks
+from external_context import load_external_context
+from external_scan import ExternalScanner
 from portfolio_manager import PortfolioManager
 from portfolio_store import PortfolioStore
 from regime_detector import RegimeDetector
@@ -49,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--research-relevance", type=str, default="medium", help="high | medium | low")
     parser.add_argument("--research-funds", type=str, default="", help="Comma-separated fund codes this note refers to (optional)")
     parser.add_argument("--research-body-file", type=str, default="", help="Path to file with the note body. If omitted, body is read from stdin.")
+    parser.add_argument("--refresh-external-context", action="store_true", help="Run the autonomous external scanner (Yahoo macro proxies + Google News RSS for Turkey rates/news/fund-specific) before deciding. Refreshes context/current_external_context.json.")
+    parser.add_argument("--no-auto-context-refresh", action="store_true", help="Disable automatic external-context refresh when the saved context is older than the freshness threshold. Default: auto-refresh on.")
+    parser.add_argument("--external-context", type=str, default="", help="Override path to the external-context JSON. Default: context/current_external_context.json.")
+    parser.add_argument("--ignore-external-context-gate", action="store_true", help="Do not cap confidence when external context is missing/stale/incomplete. Use with caution.")
+    parser.add_argument("--scan-only", action="store_true", help="Run the external scanner and exit. Useful for AI operator to refresh context without generating a recommendation.")
     return parser
 
 
@@ -78,6 +85,21 @@ def _print_status(out) -> int:
         lines.append(f"last_decision: {dec.get('decision_id')} | {dec.get('action')} | {dec.get('aggressive_fund',{}).get('code')} %{int(dec.get('aggressive_ratio',0)*100)} + {dec.get('defensive_fund',{}).get('code')} %{int(dec.get('defensive_ratio',0)*100)} | {dec.get('created_at')}")
     else:
         lines.append("last_decision: none yet")
+
+    # External context
+    ext = load_external_context(config.external_context_path, max_age_days=config.external_context_max_age_days)
+    ext_summary = f"external_context: status={ext.status}"
+    if ext.age_days is not None:
+        ext_summary += f" age={ext.age_days}d"
+    if ext.confidence_cap is not None:
+        ext_summary += f" confidence_cap={ext.confidence_cap}"
+    if ext.avoid_funds:
+        ext_summary += f" avoid_funds={ext.avoid_funds}"
+    if ext.risk_penalty_delta:
+        ext_summary += f" risk_delta=+{ext.risk_penalty_delta}"
+    if ext.regime_score_delta:
+        ext_summary += f" regime_delta={ext.regime_score_delta:+.1f}"
+    lines.append(ext_summary)
 
     # Pending research
     research = ResearchStore().load_recent(days=60)
@@ -168,6 +190,13 @@ def run(argv: List[str] | None = None) -> int:
         return 0 if all(r.get("status") == "pass" for r in rows) else 1
     if args.record_research:
         return _record_research(args, out)
+    if args.scan_only:
+        config = FundbotConfig(external_context_path=Path(args.external_context) if args.external_context else FundbotConfig().external_context_path)
+        codes = [c.strip().upper() for c in args.codes.split(",") if c.strip()]
+        ctx = ExternalScanner().scan(codes=codes, output_path=config.external_context_path)
+        text = f"external context written: {config.external_context_path} | sources={len(ctx.get('sources', []))} risks={len(ctx.get('risks', []))}"
+        out.print(text) if out else print(text)
+        return 0
     if args.record_transaction:
         if not args.tx_code or not args.tx_date:
             text = "Transaction rejected: --tx-code and --tx-date are required. State is unchanged."
@@ -187,7 +216,10 @@ def run(argv: List[str] | None = None) -> int:
         out.print(text) if out else print(text)
         return 0
 
-    config = FundbotConfig()
+    config = FundbotConfig(
+        external_context_path=Path(args.external_context) if args.external_context else FundbotConfig().external_context_path,
+        external_context_auto_refresh=not args.no_auto_context_refresh,
+    )
     codes = [c.strip() for c in args.codes.split(",") if c.strip()]
     fetch = TEFASDataFetcher(config).fetch(codes=codes or None, force_refresh=args.force_refresh)
     if fetch.metadata.empty or not fetch.histories:
@@ -211,14 +243,51 @@ def run(argv: List[str] | None = None) -> int:
     regime = RegimeDetector().detect()
     top = opportunities[0]
     mm = money[0]
+
+    # Autonomous external-context layer: scanner -> intelligence -> gate.
+    # Refresh policy: explicit --refresh-external-context wins; otherwise
+    # auto-refresh if the saved context is older than the freshness threshold
+    # (configurable; default 3d). User can disable with --no-auto-context-refresh.
+    should_refresh = args.refresh_external_context
+    if not should_refresh and config.external_context_auto_refresh:
+        probe = load_external_context(config.external_context_path, max_age_days=config.external_context_max_age_days)
+        if probe.status != "ready":
+            should_refresh = True
+    if should_refresh and config.external_context_path is not None:
+        scan_codes = [c.code for c in opportunities[:3]] + [mm.code]
+        try:
+            ExternalScanner().scan(codes=scan_codes, output_path=config.external_context_path)
+        except Exception as exc:
+            logging.warning("external scanner failed; proceeding with whatever context exists: %s", exc)
+    external_context = load_external_context(config.external_context_path, max_age_days=config.external_context_max_age_days)
+
+    # Honor avoid_funds: if the top aggressive candidate was flagged with
+    # structural news risk, swap to the next clean candidate. If none are
+    # clean, refuse to recommend.
+    if external_context.avoid_funds:
+        avoid_set = set(external_context.avoid_funds)
+        replacement = next((candidate for candidate in opportunities if candidate.code not in avoid_set), None)
+        if replacement is None:
+            text = "Veri yok: all aggressive candidates were blocked by external structural-risk intelligence."
+            out.print(text) if out else print(text)
+            return 3
+        if replacement.code != top.code:
+            top = replacement
+
     decision = FundAllocator(config).allocate(
         opportunity_code=top.code,
         opportunity_name=top.name,
         opportunity_score=top.score,
         money_market_code=mm.code,
         money_market_name=mm.name,
-        regime_score=regime.score,
-        risk_penalty=max(top.metrics.volatility_3m * 10 + abs(top.metrics.max_drawdown) * 20, 0),
+        regime_score=max(0.0, min(100.0, regime.score + external_context.regime_score_delta)),
+        risk_penalty=max(top.metrics.volatility_3m * 10 + abs(top.metrics.max_drawdown) * 20 + external_context.risk_penalty_delta, 0),
+        external_verified_data=external_context.verified_data,
+        external_unavailable_data=external_context.unavailable_data + external_context.notes,
+        external_user_provided_data=external_context.user_provided_data,
+        confidence_cap=None if args.ignore_external_context_gate else external_context.confidence_cap,
+        external_reasons=external_context.reasons,
+        external_rerun_triggers=external_context.rerun_triggers,
     )
     candidate_rows = [{"code": c.code, "name": c.name, "score": c.score, "confidence": c.confidence} for c in opportunities[:3]]
     current_scores = {c.code: c.score for c in opportunities}

@@ -23,9 +23,14 @@ Engine ne yapar:
 
 - TEFAS'tan yüzlerce fonu çeker
 - Momentum / trend / volatilite / rejim üzerinden skorlar
+- **Otomatik external scanner** çalıştırır: Yahoo Finance'ten USDTRY/Nasdaq/Gold/BIST100 makro proxy'leri, Google News RSS'ten TCMB faiz/enflasyon ve fon-spesifik haber (tasfiye, soruşturma, yönetim değişikliği)
+- Bu dış veriyi bounded modifier'lara çevirir: risk delta, regime delta, confidence cap, avoid_funds listesi
+- Yapısal risk haberi olan fonları otomatik avoid listesine alır, bir sonraki temiz adaya geçer
 - 1 agresif ana fon + 1 düşük-risk para piyasası fonu seçer
 - Oran üretir (tutar değil — TL hesabını kullanıcı yapar)
 - Markdown rapor ve append-only JSONL karar history'si yazar
+
+**Hiçbir adım kullanıcı girişi gerektirmez.** Tüm dış veri otonomdur. Kullanıcı isterse `research/` altına ek bağlam ekleyebilir, ama bu opsiyonel.
 
 AI operator ne yapar:
 
@@ -98,10 +103,16 @@ python3 main.py
 # Cache'i atla, taze çek (TEFAS rate-limit'i nedeniyle dakikalar sürebilir)
 python3 main.py --force-refresh
 
+# External context'i (Yahoo + Google News) otonom yenile, karar üretme
+python3 main.py --scan-only --codes AFT,AAL
+
+# Karar üretirken external context'i zorla yenile
+python3 main.py --refresh-external-context
+
 # Veri provider katmanını doğrula (karar üretmeden)
 python3 main.py --healthcheck
 
-# Kullanıcı bağlamını (Grok cevabı vs.) sisteme ekle
+# (Opsiyonel) Kullanıcı bağlamını (Grok cevabı vs.) sisteme ekle
 echo "..." | python3 main.py --record-research \
   --research-topic tech-fonlari-grok-q3 \
   --research-source grok \
@@ -121,12 +132,25 @@ Tam komut listesi: `python3 main.py --help`.
 
 ## Veri bütünlüğü
 
-Provider sırası:
+### TEFAS fiyat provider sırası
 
 1. **pytefas** — birincil, TEFAS resmi JSON uçları; rate-limit aware.
 2. **Direct TEFAS JSON wrapper** — fallback (429 / boş body / decode hatasına karşı jitter'lı backoff).
 3. **Crawler placeholder** — devre dışı (TEFAS web şeması değişirse hazır).
 4. **Manuel CSV / XLSX snapshot** — son çare, kullanıcı sağlamalı.
+
+### External context (otonom)
+
+İki katman:
+
+1. **`external_scan.py`** — Yahoo Finance (USDTRY, Nasdaq, Gold, BIST100) + Google News RSS (TCMB faiz, enflasyon, fon-spesifik haber). Hiç kullanıcı girişi yok, network'tan çeker. Her run'da context bayatsa (default 3 gün) otomatik yeniler.
+2. **`external_intelligence.py`** — taranan veriyi bounded modifier'lara çevirir:
+   - BIST -%8'den kötü → risk +14, regime -12, confidence cap 75
+   - Real-rate gap < -10pp → risk +10, regime -8, cap 75
+   - "tasfiye / soruşturma / manipülasyon / işlem durdur" haberi → risk +25, regime -15, cap 55, fon avoid listesine eklenir
+3. **`external_context.py`** — gate: context yoksa/bayatsa confidence cap 70 uygular. Hard fail değil; engine yine ratio üretir, sadece güveni cap'ler.
+
+`research/` katmanı (kullanıcı manual notları) hâlâ var ama **opsiyoneldir** — engine onsuz da %100 çalışır.
 
 Ardışık TEFAS-backed provider'lar arasında konfigüre edilebilir cooldown (default 12s) — aynı backend hammer'lanmaz.
 
@@ -184,7 +208,10 @@ allocator.py                     iki-bacaklı dağılım (band'lar weights.json'
 reporter.py                      markdown rapor + decisions.jsonl
 portfolio_store.py               append-only işlem defteri + türetilmiş state
 portfolio_manager.py             stateful süreklilik katmanı
-research_store.py                kullanıcı sağlamalı dış bağlam (research/)
+external_scan.py                 OTONOM Yahoo + Google News scanner
+external_intelligence.py         scan → bounded modifier (risk/regime/cap/avoid)
+external_context.py              gate: context yükleme + freshness + confidence cap
+research_store.py                OPSİYONEL kullanıcı sağlamalı dış bağlam (research/)
 strategy_loader.py               weights.json yükleme + default fallback
 strategy/                        weights.json + history.jsonl
 research/                        kullanıcı sağlamalı notlar (gitignored)
@@ -208,6 +235,7 @@ python3 -m unittest discover -s tests
 - TEFAS public API'si haber vermeden değişebilir; provider katmanı güncellenmesi gerek.
 - TEFAS rate-limit (~6 req/dk) — geniş evren fetch'i kasıtlı yavaş.
 - Cache hit'te metadata kayboluyor (`name=code, category="cached"`) — money market keyword matching o durumda çalışmıyor. Bilinen bug, yakında düzelir.
+- Google News RSS Türkçe sonuçlar dönüyor ama yapısı değişebilir; scanner failure'ı sessizce log'lanır, engine çalışmaya devam eder.
 - Backtester şu an minimal. Gerçek aylık rebalance simülatörü yol haritasında.
 - Macro rejim katmanı bir modifier, tahmin motoru değil.
 

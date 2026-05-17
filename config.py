@@ -26,3 +26,6 @@ class FundbotConfig:
     aggressive_ratios: tuple[float, ...] = (0.90, 0.75, 0.65, 0.50, 0.35)
     verified_quant_label: str = "TEFAS/library price history cached or fetched by local fundbot"
     tefas_inter_provider_backoff_seconds: float = 12.0
+    external_context_path: Path | None = Path(__file__).resolve().parent / "context" / "current_external_context.json"
+    external_context_max_age_days: int = 3
+    external_context_auto_refresh: bool = True

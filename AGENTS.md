@@ -38,14 +38,36 @@ This prints engine state: cache age, last decision, pending research notes, last
 
 ### 3.1 Monthly recommendation ("bu ayın fonunu seçelim")
 
-1. `python3 main.py --status` — orient.
-2. If cache is older than a week or user says so: `python3 main.py --force-refresh` (else just `python3 main.py`).
+1. `python3 main.py --status` — orient. Pay attention to `external_context: status=...`. If status is `missing` / `incomplete` / `stale`, the engine will auto-refresh on the next run (default), so this is informational.
+2. If cache is older than a week or user says so: `python3 main.py --force-refresh`. Otherwise just `python3 main.py`. The engine will:
+   - Fetch TEFAS data (cached or live).
+   - If external context is missing/stale, auto-run the scanner (Yahoo Finance for USDTRY/Nasdaq/Gold/BIST100, Google News RSS for TR rates + news + per-fund queries).
+   - Apply external-context modifiers (risk_penalty_delta, regime_score_delta, confidence_cap, avoid_funds) to the allocator.
+   - Write a report.
 3. Read the generated markdown report from `reports/`.
 4. Explain to the user in plain Turkish: which aggressive fund, which money market fund, what ratio, confidence level, what changed since last month.
 5. If there is a portfolio_decision section, explain whether the action is BUY / HOLD / SWITCH / etc. and *why*.
-6. If `--status` showed pending research notes, mention that they were attached as context but did not influence the score.
+6. If the report shows a confidence cap from external context, surface that: "BIST -12% ve faiz/enflasyon gap negatif olduğu için engine confidence'ı 75'e cap'ledi — agresif bandı bilerek aşağıda tuttu."
+7. If the report shows `avoid_funds`, explain which fund was skipped and why: "AFT için tasfiye haberi tespit edildi, otomatik avoid listesine alındı; bir sonraki temiz aday seçildi."
+8. If pending research notes exist, mention that they were attached as context but did not influence the score.
 
 **Do not paraphrase the rationale.** Quote the engine's reasons. The engine is the source of truth for *why*.
+
+### 3.1b Force a context refresh ("Yahoo/haber verilerini güncelleyelim")
+
+If the user explicitly wants a fresh macro/news scan without producing a recommendation:
+
+```bash
+python3 main.py --scan-only --codes AFT,AAL
+```
+
+This re-runs the scanner and writes `context/current_external_context.json`. Use when the user mentions a market event ("BIST düştü bugün", "Fed kararı çıktı") and wants the next recommendation to reflect it.
+
+If the user wants a recommendation that explicitly refreshes context first regardless of age:
+
+```bash
+python3 main.py --refresh-external-context
+```
 
 ### 3.2 Transaction reporting ("42k AFT aldım")
 
@@ -109,7 +131,7 @@ Key invariants you must preserve:
 
 ## 4. Hard rules — never violate
 
-1. **Never fabricate market or news data.** If something is unavailable, the engine says "veri yok" and so do you.
+1. **Never fabricate market or news data.** If something is unavailable, the engine says "veri yok" and so do you. The external scanner produces real Yahoo / Google News data with source URLs — do not invent items beyond what `context/current_external_context.json` actually contains.
 2. **Never override quant scoring with external narrative.** Research notes are context, not signal.
 3. **Never mutate `portfolio/portfolio_state.json` without an explicit user-confirmed transaction.** Pending records are fine; confirmed records require user words like "evet aldım" / "evet sattım".
 4. **Never change `strategy/weights.json` without explicit per-change user approval.** No batch tuning.
@@ -158,6 +180,10 @@ Unhealthy evolution is anything that bypasses user approval, ignores tests, or f
 | `reports/` | Generated markdown reports + `decisions.jsonl`. Gitignored. |
 | `portfolio/` | Append-only transaction ledger + derived state. Gitignored. |
 | `data/fundbot.sqlite` | Provider cache. Performance only, not source of truth. |
+| `context/current_external_context.json` | Latest scanner output. Gitignored. Refreshed by `--refresh-external-context` or auto when stale. |
+| `external_scan.py` | Yahoo + Google News fetcher. Pure data; no inference. |
+| `external_intelligence.py` | Translates scan into bounded modifiers (risk/regime deltas, confidence cap, avoid_funds). |
+| `external_context.py` | Gate that loads the scan, enforces freshness, runs intelligence. |
 | `tests/` | Behavior tests. Run before every commit. |
 
 ---

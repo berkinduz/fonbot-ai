@@ -66,7 +66,7 @@ Kaynak atfı:
 Erişilemeyen / veri yok:
 {unavailable_text}
 
-Not: X/Twitter, haber ve canlı piyasa verisi otomatik varsayılmaz. Kullanıcı dış araştırma getirirse destekleyici bağlamdır; ana karar kaynağı değildir.
+Not: Otomatik external scanner Yahoo Finance makro proxy'leri ve Google News RSS'inden bağlam çeker. Sentiment / sosyal medya akışı kullanılmaz. Tüm dış veri yalnızca conviction'ı **modifiye eder**, asla quant skoru geçersiz kılmaz.
 
 ## Kullanıcı Bağlamı (research/)
 {self._research_block(research_notes)}

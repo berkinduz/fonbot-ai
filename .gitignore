@@ -6,8 +6,9 @@ __pycache__/
 venv/
 .DS_Store
 
-# Runtime user state — never publish someone's portfolio or external research
+# Runtime user state — never publish someone's portfolio, research, or scans
 portfolio/
 reports/
 research/*.md
 !research/.gitkeep
+context/current_*.json
