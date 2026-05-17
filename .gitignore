@@ -2,3 +2,10 @@ data/*.sqlite
 data/*.sqlite-*
 __pycache__/
 *.pyc
+.venv/
+venv/
+.DS_Store
+
+# Runtime user state — never publish someone's portfolio
+portfolio/
+reports/
