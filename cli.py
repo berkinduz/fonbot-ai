@@ -9,6 +9,7 @@ from allocator import FundAllocator
 from analyzer import FundAnalyzer
 from config import FundbotConfig
 from data_fetcher import TEFASDataFetcher
+from data_provider_healthcheck import run_provider_smoke_checks
 from portfolio_manager import PortfolioManager
 from portfolio_store import PortfolioStore
 from regime_detector import RegimeDetector
@@ -30,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force-refresh", action="store_true", help="Ignore cached histories where provider supports refresh")
     parser.add_argument("--backtest", action="store_true", help="Run simple backtest helper (requires prepared returns; placeholder safe)")
     parser.add_argument("--explain", action="store_true", help="Print strategy explanation")
+    parser.add_argument("--healthcheck", action="store_true", help="Run data provider smoke checks and exit (no recommendation)")
+    parser.add_argument("--healthcheck-code", type=str, default="AFT", help="Sample fund code for healthcheck")
     parser.add_argument("--record-transaction", action="store_true", help="Record a user-confirmed/manual portfolio transaction")
     parser.add_argument("--tx-code", type=str, default="", help="Transaction fund code")
     parser.add_argument("--tx-name", type=str, default="", help="Transaction fund name")
@@ -57,6 +60,19 @@ def run(argv: List[str] | None = None) -> int:
         text = "Backtest module is available; provide prepared monthly returns before interpreting results. No fake backtest generated."
         out.print(text) if out else print(text)
         return 0
+    if args.healthcheck:
+        config = FundbotConfig()
+        rows = run_provider_smoke_checks(config, sample_code=args.healthcheck_code.upper())
+        for row in rows:
+            line = f"[{row.get('status','?').upper():4}] {row.get('name')}"
+            unavailable = row.get("unavailable_data") or []
+            if unavailable:
+                line += " | " + "; ".join(str(u) for u in unavailable[:3])
+            histories = row.get("histories") or []
+            if histories:
+                line += f" | histories={histories}"
+            out.print(line) if out else print(line)
+        return 0 if all(r.get("status") == "pass" for r in rows) else 1
     if args.record_transaction:
         if not args.tx_code or not args.tx_date:
             text = "Transaction rejected: --tx-code and --tx-date are required. State is unchanged."

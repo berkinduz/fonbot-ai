@@ -61,7 +61,7 @@ class DataProviderIntegrityTests(unittest.TestCase):
         primary = FakeProvider("pytefas", 10, fail=True)
         secondary = FakeProvider("direct-tefas", 20, scan_codes=["AAA"], histories={"AAA": prices("AAA")})
 
-        result = ProviderOrchestrator([primary, secondary]).fetch(codes=["AAA"])
+        result = ProviderOrchestrator([primary, secondary], tefas_backoff_seconds=0).fetch(codes=["AAA"])
 
         self.assertIn("AAA", result.histories)
         self.assertEqual(result.source_attribution["AAA"], "direct-tefas")
@@ -85,7 +85,7 @@ class DataProviderIntegrityTests(unittest.TestCase):
 
     def test_stale_cache_is_reported_as_cache_fallback_and_does_not_allow_high_confidence_data(self):
         with tempfile.TemporaryDirectory() as td:
-            config = FundbotConfig(cache_path=Path(td) / "fundbot.sqlite", cache_stale_after_days=1)
+            config = FundbotConfig(cache_path=Path(td) / "fundbot.sqlite", cache_stale_after_days=1, tefas_inter_provider_backoff_seconds=0)
             fetcher = TEFASDataFetcher(config, providers=[FakeProvider("pytefas", 10, fail=True)])
             stale = prices("AAA", start="2025-01-01", periods=8)
             fetcher.cache.save_prices(stale, source="manual-old", fetched_at="2025-01-01T00:00:00+00:00")
@@ -124,7 +124,7 @@ class DataProviderIntegrityTests(unittest.TestCase):
             self.assertIn("user-provided", response.verified_data[0])
     def test_provider_healthcheck_reports_short_long_universe_failure_and_stale_cache_checks(self):
         with tempfile.TemporaryDirectory() as td:
-            config = FundbotConfig(cache_path=Path(td) / "fundbot.sqlite", cache_stale_after_days=1)
+            config = FundbotConfig(cache_path=Path(td) / "fundbot.sqlite", cache_stale_after_days=1, tefas_inter_provider_backoff_seconds=0)
             ok_provider = FakeProvider("direct-tefas", 20, scan_codes=["AAA", "BBB"], histories={"AAA": prices("AAA"), "BBB": prices("BBB", periods=10)})
             failing_provider = FakeProvider("pytefas", 10, fail=True)
             checks = run_provider_smoke_checks(config, providers=[failing_provider, ok_provider], sample_code="AAA", universe_codes=["AAA", "BBB"])

@@ -106,7 +106,7 @@ class PytefasProvider(BaseDataProvider):
         from datetime import date, timedelta
         from pytefas import Crawler  # type: ignore
 
-        crawler = Crawler(timeout=60, max_retry=3)
+        crawler = Crawler(timeout=90, max_retry=6)
         start = date.today() - timedelta(days=scope.lookback_days)
         end = date.today()
         frames: List[pd.DataFrame] = []
@@ -154,13 +154,59 @@ class DirectTEFASProvider(BaseDataProvider):
         "portfoyBuyukluk": "portfolio_size",
     }
 
-    def __init__(self, priority: int = 20, timeout: int = 30):
+    def __init__(self, priority: int = 20, timeout: int = 60, max_retry: int = 6):
         super().__init__("direct-tefas", priority)
         self.timeout = timeout
+        self.max_retry = max_retry
+        self._session = None
+
+    def _session_lazy(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    def _post_json_with_backoff(self, body: dict) -> dict:
+        """POST with TEFAS-aware rate-limit handling.
+
+        TEFAS returns 200 with empty body when its 6/min rate limit is hit; it
+        also returns 429 explicitly. Both must wait and retry with jitter; empty
+        body is treated as a soft rate-limit signal, not as a JSON decode error.
+        """
+        import random
+        import time
+
+        session = self._session_lazy()
+        last_error: Optional[str] = None
+        for attempt in range(self.max_retry):
+            response = session.post(self.INFO_URL, json=body, headers=self.HEADERS, timeout=self.timeout)
+            reset = response.headers.get("ratelimit-reset")
+            remaining = response.headers.get("ratelimit-remaining")
+            if response.status_code == 429:
+                wait = int(reset) + 1 if (reset and reset.isdigit()) else 30
+                time.sleep(wait + random.uniform(0, 1.5))
+                last_error = "rate-limited (429)"
+                continue
+            if response.status_code == 200 and not response.text.strip():
+                wait = int(reset) + 1 if (reset and reset.isdigit()) else 15
+                time.sleep(wait + random.uniform(0, 1.5))
+                last_error = "empty body (soft rate-limit)"
+                continue
+            response.raise_for_status()
+            try:
+                data = response.json()
+            except ValueError:
+                wait = int(reset) + 1 if (reset and reset.isdigit()) else 15
+                time.sleep(wait + random.uniform(0, 1.5))
+                last_error = "JSON decode failure"
+                continue
+            if remaining is not None and remaining.isdigit() and int(remaining) <= 1 and reset and reset.isdigit():
+                time.sleep(int(reset) + 1)
+            return data
+        raise RuntimeError(f"TEFAS direct endpoint exhausted {self.max_retry} retries; last={last_error}")
 
     def fetch(self, scope: FetchScope) -> ProviderResponse:
         from datetime import date, timedelta
-        import requests
 
         end = date.today()
         start = end - timedelta(days=scope.lookback_days)
@@ -189,9 +235,7 @@ class DirectTEFASProvider(BaseDataProvider):
                     "fonGrup": "",
                     "fonUnvanTip": "",
                 }
-                response = requests.post(self.INFO_URL, json=body, headers=self.HEADERS, timeout=self.timeout)
-                response.raise_for_status()
-                payload = response.json()
+                payload = self._post_json_with_backoff(body)
                 err = payload.get("errorMessage")
                 if err and "veri bulunamadı" not in str(err).lower() and "out of bounds" not in str(err).lower():
                     raise RuntimeError(f"TEFAS direct API error: {err}")
@@ -238,10 +282,19 @@ class ManualSnapshotProvider(BaseDataProvider):
         return response
 
 
+TEFAS_BACKED_PROVIDERS = {"pytefas", "direct-tefas", "tefas-crawler"}
+
+
 class ProviderOrchestrator:
-    def __init__(self, providers: Iterable[BaseDataProvider], conflict_tolerance: float = 0.01):
+    def __init__(
+        self,
+        providers: Iterable[BaseDataProvider],
+        conflict_tolerance: float = 0.01,
+        tefas_backoff_seconds: float = 12.0,
+    ):
         self.providers = sorted(list(providers), key=lambda p: p.priority)
         self.conflict_tolerance = conflict_tolerance
+        self.tefas_backoff_seconds = tefas_backoff_seconds
         self.health: Dict[str, ProviderHealth] = {p.name: ProviderHealth(p.name) for p in self.providers}
 
     def fetch(
@@ -283,10 +336,14 @@ class ProviderOrchestrator:
         return result
 
     def _first_success(self, scope: FetchScope, unavailable: List[str]) -> Optional[ProviderResponse]:
+        last_failed_tefas = False
         for provider in self.providers:
+            if last_failed_tefas and provider.name in TEFAS_BACKED_PROVIDERS and self.tefas_backoff_seconds > 0:
+                time.sleep(self.tefas_backoff_seconds)
             response = self._call_provider(provider, scope, unavailable)
             if response and (not response.metadata.empty or response.histories):
                 return response
+            last_failed_tefas = provider.name in TEFAS_BACKED_PROVIDERS
         return None
 
     def _call_provider(self, provider: BaseDataProvider, scope: FetchScope, unavailable: List[str]) -> Optional[ProviderResponse]:

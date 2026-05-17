@@ -65,7 +65,11 @@ class TEFASDataFetcher:
                     confidence_multiplier=0.9,
                 )
 
-        orchestrator = ProviderOrchestrator(self.providers, conflict_tolerance=self.config.provider_conflict_tolerance)
+        orchestrator = ProviderOrchestrator(
+            self.providers,
+            conflict_tolerance=self.config.provider_conflict_tolerance,
+            tefas_backoff_seconds=self.config.tefas_inter_provider_backoff_seconds,
+        )
         result = orchestrator.fetch(codes=requested_codes or None, lookback_days=self.config.lookback_days)
         for code, hist in result.histories.items():
             source = result.source_attribution.get(code, "provider")

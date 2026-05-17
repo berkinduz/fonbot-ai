@@ -70,6 +70,7 @@ def _safe_fetch(config: FundbotConfig, providers: Optional[List[BaseDataProvider
         defensive_min_score=config.defensive_min_score,
         aggressive_ratios=config.aggressive_ratios,
         verified_quant_label=config.verified_quant_label,
+        tefas_inter_provider_backoff_seconds=config.tefas_inter_provider_backoff_seconds,
     )
     try:
         result = TEFASDataFetcher(scoped, providers=providers).fetch(codes=codes, force_refresh=force_refresh)

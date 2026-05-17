@@ -25,3 +25,4 @@ class FundbotConfig:
     defensive_min_score: float = 50
     aggressive_ratios: tuple[float, ...] = (0.90, 0.75, 0.65, 0.50, 0.35)
     verified_quant_label: str = "TEFAS/library price history cached or fetched by local fundbot"
+    tefas_inter_provider_backoff_seconds: float = 12.0
