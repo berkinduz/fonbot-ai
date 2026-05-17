@@ -18,6 +18,7 @@ Kullanıcı  ◄──"şu fonu %75, şuna %25 öner, ──┘
 ```
 
 Engine ne yapar:
+
 - TEFAS'tan yüzlerce fonu çeker
 - Momentum / trend / volatilite / rejim üzerinden skorlar
 - 1 agresif ana fon + 1 düşük-risk para piyasası fonu seçer
@@ -25,13 +26,15 @@ Engine ne yapar:
 - Markdown rapor ve append-only JSONL karar history'si yazar
 
 AI operator ne yapar:
+
 - Doğru zamanda doğru komutu çağırır (`--status`, `--healthcheck`, `--record-research`, vs.)
 - Raporu okur, sebep-sonuç ilişkilerini kullanıcıya açıklar
 - Harici araştırmayı (Grok cevabı, X yorumu, haber) `research/` altına entegre eder
 - Kullanıcı strateji ayarı önerirse `strategy/weights.json`'u değiştirmek için onay alır, değiştirir, log'lar
 - Yeni provider / sinyal eklenmesi gerekirse `PROVIDER_TEMPLATE.md` / `SIGNAL_TEMPLATE.md`'yi takip eder
 
-Detaylı operator manual: [`AGENTS.md`](AGENTS.md).
+Detaylı operator manual: `AGENTS.md`.
+Sistem akışının adım adım anlatımı: `HOW_IT_WORKS.md`.
 
 ## Mevcut kapsam ve yol haritası
 
@@ -52,7 +55,7 @@ Detaylı operator manual: [`AGENTS.md`](AGENTS.md).
 Fonbot küçük ama savunulabilir bir tez üzerine kurulu:
 
 - **Momentum birincil sinyaldir.** 3 aylık momentum en yüksek ağırlığı taşır; 6 aylık devamlılığı teyit eder.
-- **Trend, volatilite, drawdown ve makro rejim modifier'dır** — yönü değil, *kanaat* ve *pozisyon büyüklüğünü* etkilerler.
+- **Trend, volatilite, drawdown ve makro rejim modifier'dır** — yönü değil, _kanaat_ ve _pozisyon büyüklüğünü_ etkilerler.
 - **Sosyal / haber / sentiment üçüncül kaynaktır.** AI operator harici bağlam getirebilir ama bu, quant skorlamayı asla geçersiz kılamaz.
 - **Eksik veri, eksik veri olarak raporlanır.** Sistem görmediği şeyi uydurmaz.
 
@@ -129,6 +132,7 @@ Provider sırası:
 Ardışık TEFAS-backed provider'lar arasında konfigüre edilebilir cooldown (default 12s) — aynı backend hammer'lanmaz.
 
 Cache yalnızca performans yardımcısıdır:
+
 - Taze cache tekrar provider çağrısı yapmadan iş görür.
 - Bayat cache (default 7 gün) **bayat olarak raporlanır** ve **karar üretmeye uygun veri olarak engellenir**.
 - Provider çatışması (latest price'da tolerans üstü fark) varsa o fonun history'si bloklanır.
@@ -158,8 +162,9 @@ portfolio/snapshots/*.json            # her onaylı değişiklikte snapshot
 ```
 
 Her aylık analiz iki ayrı soruya cevap verir:
-- **A)** *Sıfırdan başlasaydım hangi dağılımı seçerdim?*
-- **B)** *Mevcut pozisyonlarıma göre ne yapmalıyım?*
+
+- **A)** _Sıfırdan başlasaydım hangi dağılımı seçerdim?_
+- **B)** _Mevcut pozisyonlarıma göre ne yapmalıyım?_
 
 Aksiyonlar: `BUY`, `HOLD`, `INCREASE`, `REDUCE`, `SWITCH`, `PARTIAL SWITCH`. Mevcut pozisyona sadakat ikramiyesi yok; fon yalnızca momentum/sıralama/rejim onu hâlâ destekliyorsa tutulur.
 
