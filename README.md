@@ -1,10 +1,24 @@
 # fonbot-ai
 
-Local-first, taktiksel fon tahsis motoru. Tek bir işe odaklı: her ay maaşımdan ayırdığım TL'yi nereye koyacağıma karar vermek.
+Amatör yatırımcılar için lokal çalışan, taktiksel bir fon tahsis motoru.
 
-Bir miktar veriyorsun. Fonbot TEFAS verisini okuyor, yatırılabilir evreni momentum / trend / volatilite / rejim üzerinden skorluyor ve sana **1 agresif fırsat fonu + 1 para piyasası fonu** ile net bir oran döndürüyor. Alım-satımı sen banka / aracı kurum uygulamandan elle yapıyorsun.
+Hedef sorun basit: **elinde bir miktar para var, nakit olarak beklesin istemiyorsun, ama hangi fona koyacağına da karar veremiyorsun.** Fonbot bu boşluğu dolduruyor — TEFAS verisini okuyor, yatırılabilir evreni momentum / trend / volatilite / rejim üzerinden skorluyor ve sana **1 agresif ana fon + 1 düşük-risk para piyasası fonu** ile net bir oran döndürüyor. Tek karar, iki bacak, bitti.
 
-Bu bir karar-destek aracı, otomatik trader değil. Hesabına bağlanmıyor, emir göndermiyor, para hareket ettirmiyor. Aynı zamanda **bilmediği şeyi biliyormuş gibi de yapmıyor** — uydurma haber yok, hayali sentiment yok, sahte "canlı veri" yok. TEFAS erişilemezse, açıkça söylüyor.
+Tutarın kaynağı önemli değil: aylık tasarrufun, hesabında biriken nakit, ikramiye, bir kerelik bir giriş — fonbot için hepsi aynı. Sen miktarı söylüyorsun, motor o ay için en mantıklı dağılımı çıkarıyor. Alım-satımı sen banka / aracı kurum uygulamandan elle yapıyorsun.
+
+Bu bir **karar-destek aracı**, otomatik trader değil. Hesabına bağlanmıyor, emir göndermiyor, para hareket ettirmiyor. Aynı zamanda **bilmediği şeyi biliyormuş gibi de yapmıyor** — uydurma haber yok, hayali sentiment yok, sahte "canlı veri" yok. TEFAS erişilemezse, açıkça söylüyor.
+
+### Kimin için
+
+- Elinde nakit duruyor ama "bir fon seçeyim" kararını her ay yeniden vermek istemeyen amatör yatırımcılar.
+- "Hangi fon iyi?" sorusuna duygusal değil, momentum / trend bazlı sistematik bir cevap arayanlar.
+- Tek bir aracın kendilerini kurtarmasını beklemeyen, kararı kendisi verecek ama önüne düzgün bir analiz koyulsun isteyenler.
+
+### Kimin için değil
+
+- Aktif trader'lar (bu günlük alım-satım botu değil).
+- "Bana garantili kazandıracak fonu söyle" diyenler (garanti yok; bu sadece istatistiksel bir bias).
+- Kuruluma / terminal kullanımına zamanı / sabrı olmayanlar (şu an GUI yok — bkz. Yol haritası).
 
 > **Not (Türkçe / Geçici kapsam):** Şu anki sürüm sadece **TEFAS** üzerinden çalışıyor, yani pratik olarak Türkiye'de yatırım yapanlar için kullanışlı. Yol haritasında provider katmanını genelleştirip NASDAQ / BIST / diğer borsalar ve kripto API'lerini eklemek var — sistem mimarisi zaten "primary + fallback provider" mantığıyla yazıldı, asıl iş yeni provider sınıfları eklemek.
 
