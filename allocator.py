@@ -13,7 +13,6 @@ class FundAllocator:
 
     def allocate(
         self,
-        amount: float,
         opportunity_code: str,
         opportunity_name: str,
         opportunity_score: float,
@@ -41,7 +40,7 @@ class FundAllocator:
         elif previous_code == opportunity_code and aggressive_ratio >= 0.75:
             action = "INCREASE"
         created_at = utc_now_iso()
-        raw_id = f"{created_at}-{opportunity_code}-{money_market_code}-{amount}"
+        raw_id = f"{created_at}-{opportunity_code}-{money_market_code}"
         decision_id = "fundbot-" + hashlib.sha1(raw_id.encode()).hexdigest()[:12]
         reasons = [
             "Momentum is treated as the primary signal; regime and volatility only modify sizing.",
@@ -61,10 +60,9 @@ class FundAllocator:
         return AllocationDecision(
             decision_id=decision_id,
             created_at=created_at,
-            amount=float(amount),
             action=action,
-            aggressive_fund=FundLeg(opportunity_code, opportunity_name, aggressive_ratio, round(amount * aggressive_ratio, 2), "main_opportunity"),
-            defensive_fund=FundLeg(money_market_code, money_market_name, defensive_ratio, round(amount * defensive_ratio, 2), "defensive_money_market"),
+            aggressive_fund=FundLeg(opportunity_code, opportunity_name, aggressive_ratio, "main_opportunity"),
+            defensive_fund=FundLeg(money_market_code, money_market_name, defensive_ratio, "defensive_money_market"),
             aggressive_ratio=aggressive_ratio,
             defensive_ratio=defensive_ratio,
             confidence=round(composite, 2),

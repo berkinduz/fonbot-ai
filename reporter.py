@@ -43,8 +43,8 @@ class DecisionReporter:
 
 ## Nihai Karar
 - Aksiyon: **{decision.action}**
-- Agresif ana fon: **{decision.aggressive_fund.code} — {decision.aggressive_fund.name}** (%{int(decision.aggressive_ratio*100)} / {decision.aggressive_fund.amount:,.0f} TL)
-- Para piyasası fonu: **{decision.defensive_fund.code} — {decision.defensive_fund.name}** (%{int(decision.defensive_ratio*100)} / {decision.defensive_fund.amount:,.0f} TL)
+- Agresif ana fon: **{decision.aggressive_fund.code} — {decision.aggressive_fund.name}** (toplam yatırılacak tutarın %{int(decision.aggressive_ratio*100)}'i)
+- Para piyasası fonu: **{decision.defensive_fund.code} — {decision.defensive_fund.name}** (toplam yatırılacak tutarın %{int(decision.defensive_ratio*100)}'i)
 - Güven: **{decision.confidence}/100**
 
 ## Top 3 Aday
@@ -76,7 +76,7 @@ Not: X/Twitter, haber ve canlı piyasa verisi otomatik varsayılmaz. Kullanıcı
         exposure = "\n".join([f"- {k}: {v:,.0f} TL" for k, v in portfolio_decision.current_exposure.items()])
         evals = "\n".join([f"- {x}" for x in portfolio_decision.current_position_evaluation]) or "- veri yok"
         cont = "\n".join([f"- {x}" for x in portfolio_decision.continuation_reasoning]) or "- veri yok"
-        txs = "\n".join([f"- {t.get('action')} {t.get('code')} {t.get('amount')}" for t in portfolio_decision.recommended_transactions]) or "- işlem önerisi yok"
+        txs = "\n".join([f"- {t.get('action')} {t.get('code')} (ratio: {t.get('ratio')})" for t in portfolio_decision.recommended_transactions]) or "- işlem önerisi yok"
         return f"""## Portföy Sürekliliği
 ### A) Sıfırdan Başlasaydık
 {portfolio_decision.question_a}

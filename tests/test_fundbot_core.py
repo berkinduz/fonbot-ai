@@ -49,7 +49,6 @@ class FundbotCoreTests(unittest.TestCase):
 
     def test_allocator_outputs_two_fund_decision_with_dynamic_ratio(self):
         decision = FundAllocator(FundbotConfig()).allocate(
-            amount=35000,
             opportunity_code="AAA",
             opportunity_name="Aggressive A",
             opportunity_score=86,
@@ -59,7 +58,6 @@ class FundbotCoreTests(unittest.TestCase):
             risk_penalty=5,
         )
 
-        self.assertEqual(decision.amount, 35000)
         self.assertEqual(decision.aggressive_fund.code, "AAA")
         self.assertEqual(decision.defensive_fund.code, "MMF")
         self.assertIn(decision.aggressive_ratio, {0.9, 0.75, 0.65, 0.5, 0.35})
@@ -90,7 +88,6 @@ class FundbotCoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             tmp_path = Path(td)
             decision = FundAllocator(FundbotConfig()).allocate(
-                amount=10000,
                 opportunity_code="AAA",
                 opportunity_name="Aggressive A",
                 opportunity_score=88,

@@ -61,7 +61,6 @@ class FundbotPortfolioStateTests(unittest.TestCase):
 
     def test_portfolio_manager_separates_fresh_allocation_from_current_portfolio_action(self):
         fresh = FundAllocator(FundbotConfig()).allocate(
-            amount=20000,
             opportunity_code="AFT",
             opportunity_name="Ak Portföy Yeni Teknolojiler",
             opportunity_score=84,
@@ -87,7 +86,6 @@ class FundbotPortfolioStateTests(unittest.TestCase):
 
     def test_portfolio_manager_can_hold_existing_strong_candidate_to_avoid_unnecessary_turnover(self):
         fresh = FundAllocator(FundbotConfig()).allocate(
-            amount=15000,
             opportunity_code="AFT",
             opportunity_name="Ak Portföy Yeni Teknolojiler",
             opportunity_score=82,

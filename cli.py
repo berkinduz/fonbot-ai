@@ -25,8 +25,7 @@ except Exception:  # pragma: no cover
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fundbot: tactical TEFAS fund allocation engine")
-    parser.add_argument("--amount", type=float, default=0.0, help="Monthly investable amount in TL")
-    parser.add_argument("--codes", type=str, default="", help="Comma-separated fund codes to inspect from cache/provider")
+    parser.add_argument("--codes", type=str, default="", help="Comma-separated fund codes to restrict the universe (debug/sanity-check). Default: full TEFAS YAT universe.")
     parser.add_argument("--deep-analysis", action="store_true", help="Keep more verbose candidate context in report")
     parser.add_argument("--force-refresh", action="store_true", help="Ignore cached histories where provider supports refresh")
     parser.add_argument("--backtest", action="store_true", help="Run simple backtest helper (requires prepared returns; placeholder safe)")
@@ -117,7 +116,6 @@ def run(argv: List[str] | None = None) -> int:
     top = opportunities[0]
     mm = money[0]
     decision = FundAllocator(config).allocate(
-        amount=args.amount,
         opportunity_code=top.code,
         opportunity_name=top.name,
         opportunity_score=top.score,

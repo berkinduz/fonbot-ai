@@ -48,7 +48,7 @@ class PortfolioManager:
         if not existing_main:
             action = 'BUY'
             current_position_evaluation.append('No confirmed current opportunity position; portfolio decision follows fresh allocation.')
-            recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'amount': fresh_allocation.aggressive_fund.amount})
+            recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'ratio': fresh_allocation.aggressive_ratio})
         else:
             existing_code = existing_main['code']
             existing_score = float(current_scores.get(existing_code, 0.0))
@@ -61,25 +61,25 @@ class PortfolioManager:
             )
             if same_fund:
                 action = 'INCREASE' if fresh_allocation.aggressive_ratio >= 0.75 else 'HOLD'
-                recommended_transactions.append({'action': action, 'code': existing_code, 'amount': fresh_allocation.aggressive_fund.amount if action == 'INCREASE' else 0})
+                recommended_transactions.append({'action': action, 'code': existing_code, 'ratio': fresh_allocation.aggressive_ratio if action == 'INCREASE' else 0})
                 current_position_evaluation.append('Existing fund remains the fresh top candidate; no defensive justification needed.')
             elif existing_still_strong and score_advantage < switch_advantage_threshold:
                 action = 'HOLD'
-                recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'amount': fresh_allocation.aggressive_fund.amount, 'note': 'new-money-only optional allocation; avoid forced full turnover'})
+                recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'ratio': fresh_allocation.aggressive_ratio, 'note': 'new-money-only optional allocation; avoid forced full turnover'})
                 current_position_evaluation.append('Existing fund remains strong and switch advantage is low; unnecessary full turnover avoided.')
             elif existing_score >= 55 and score_advantage >= switch_advantage_threshold:
                 action = 'PARTIAL SWITCH'
-                recommended_transactions.append({'action': 'REDUCE', 'code': existing_code, 'amount': 'partial'})
-                recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'amount': fresh_allocation.aggressive_fund.amount})
+                recommended_transactions.append({'action': 'REDUCE', 'code': existing_code, 'ratio': 'partial'})
+                recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'ratio': fresh_allocation.aggressive_ratio})
                 current_position_evaluation.append('Existing fund is not broken, but fresh candidate has a meaningful advantage; partial switch preferred.')
             else:
                 action = 'SWITCH'
-                recommended_transactions.append({'action': 'SELL', 'code': existing_code, 'amount': 'full'})
-                recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'amount': fresh_allocation.aggressive_fund.amount})
+                recommended_transactions.append({'action': 'SELL', 'code': existing_code, 'ratio': 'full'})
+                recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'ratio': fresh_allocation.aggressive_ratio})
                 current_position_evaluation.append('Existing fund no longer deserves protection; sunk-cost avoidance points to switch.')
 
-        if fresh_allocation.defensive_fund.amount > 0:
-            recommended_transactions.append({'action': 'BUY_OR_HOLD', 'code': fresh_allocation.defensive_fund.code, 'amount': fresh_allocation.defensive_fund.amount})
+        if fresh_allocation.defensive_ratio > 0:
+            recommended_transactions.append({'action': 'BUY_OR_HOLD', 'code': fresh_allocation.defensive_fund.code, 'ratio': fresh_allocation.defensive_ratio})
 
         return PortfolioDecision(
             fresh_allocation=fresh_allocation,

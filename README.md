@@ -2,9 +2,9 @@
 
 Amatör yatırımcılar için lokal çalışan, taktiksel bir fon tahsis motoru.
 
-Hedef sorun basit: **elinde bir miktar para var, nakit olarak beklesin istemiyorsun, ama hangi fona koyacağına da karar veremiyorsun.** Fonbot bu boşluğu dolduruyor — TEFAS verisini okuyor, yatırılabilir evreni momentum / trend / volatilite / rejim üzerinden skorluyor ve sana **1 agresif ana fon + 1 düşük-risk para piyasası fonu** ile net bir oran döndürüyor. Tek karar, iki bacak, bitti.
+Hedef sorun basit: **elinde bir miktar para var, nakit olarak beklesin istemiyorsun, ama hangi fona koyacağına da karar veremiyorsun.** Fonbot bu boşluğu dolduruyor — TEFAS'taki tüm yatırılabilir YAT fon evrenini (yüzlerce fon) momentum / trend / volatilite / rejim üzerinden skorluyor ve sana **1 agresif ana fon + 1 düşük-risk para piyasası fonu** ile net bir oran döndürüyor. Tek karar, iki bacak, bitti.
 
-Tutarın kaynağı önemli değil: aylık tasarrufun, hesabında biriken nakit, ikramiye, bir kerelik bir giriş — fonbot için hepsi aynı. Sen miktarı söylüyorsun, motor o ay için en mantıklı dağılımı çıkarıyor. Alım-satımı sen banka / aracı kurum uygulamandan elle yapıyorsun.
+Motor **oran üretir, tutar değil**. Sana "elindeki paranın %75'ini şu fona, %25'ini şu para piyasası fonuna" der. Kaç TL'n olduğunu bilmek zorunda değil — 5.000 TL'n de olabilir, 500.000 TL'n de; oran aynı, çarpmayı sen yaparsın. Alım-satımı sen banka / aracı kurum uygulamandan elle yapıyorsun.
 
 Bu bir **karar-destek aracı**, otomatik trader değil. Hesabına bağlanmıyor, emir göndermiyor, para hareket ettirmiyor. Aynı zamanda **bilmediği şeyi biliyormuş gibi de yapmıyor** — uydurma haber yok, hayali sentiment yok, sahte "canlı veri" yok. TEFAS erişilemezse, açıkça söylüyor.
 
@@ -43,8 +43,8 @@ SWITCH: zero-based AFT %75 + AFA %25 | report: reports/2026-05-17_fundbot-ab12cd
 
 Bu tek satırın arkasındaki markdown raporu şunları içerir:
 
-- Seçilen agresif fon + para piyasası fonu + oran + TL tutarları
-- Skorlarıyla birlikte top 3 aday
+- Seçilen agresif fon + para piyasası fonu + oran
+- Yüzlerce fon analiz edildikten sonra skorlarıyla birlikte top 3 aday
 - Neden bu dağılım (composite conviction kırılımı)
 - Eğer kayıtlı işlemin varsa portföy sürekliliği değerlendirmesi (BUY / HOLD / INCREASE / REDUCE / SWITCH / PARTIAL SWITCH)
 - Veri bütünlüğü bloğu: her fonu hangi provider verdi, ne doğrulandı, neye erişilemedi
@@ -87,18 +87,22 @@ pip install pytefas yfinance  # opsiyonel ama şiddetle önerilir; pytefas birin
 ## Kullanım
 
 ```bash
-# Aylık öneri
-python3 main.py --amount 35000
-
-# Evreni belirli kodlarla sınırla (en az bir para piyasası fonu içermeli)
-python3 main.py --amount 35000 --codes AFT,AFA
+# Standart öneri: TÜM TEFAS YAT evrenini (yüzlerce fon) analiz eder,
+# en iyi agresif fonu ve en iyi para piyasası fonunu seçer, oranı verir.
+# Tutar belirtmiyorsun; çıktı oran şeklinde gelir, kaç TL'n olduğu önemli değil.
+# TEFAS rate-limit'i (~6 istek/dk) nedeniyle ilk fetch dakikalar sürebilir;
+# sonraki çalıştırmalar cache sayesinde hızlıdır.
+python3 main.py
 
 # Cache'i atla, taze çek
-python3 main.py --amount 35000 --force-refresh
+python3 main.py --force-refresh
+
+# (Opsiyonel/debug) Evreni belirli kodlarla sınırla — sanity check için.
+# Normal kullanımda gerekli değil; tüm evren default davranıştır.
+python3 main.py --codes AFT,AFA
 
 # Karar üretmeden sadece veri katmanını doğrula
 python3 main.py --healthcheck
-python3 main.py --healthcheck --healthcheck-code AFT
 
 # Stratejiyi tek cümlede açıkla
 python3 main.py --explain

@@ -62,7 +62,6 @@ class FundLeg:
     code: str
     name: str
     ratio: float
-    amount: float
     role: str
 
 
@@ -78,7 +77,6 @@ class DataIntegrity:
 class AllocationDecision:
     decision_id: str
     created_at: str
-    amount: float
     action: str
     aggressive_fund: FundLeg
     defensive_fund: FundLeg
