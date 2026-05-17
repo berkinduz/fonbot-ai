@@ -2,6 +2,8 @@
 
 **AI agent'lar tarafından çalıştırılmak üzere tasarlanmış, taktiksel TEFAS fon tahsis motoru.**
 
+👉 [**Sistem nasıl çalışır? (Adım adım akış)**](HOW_IT_WORKS.md) | 🤖 [**AI Operatör Kılavuzu (AGENTS.md)**](AGENTS.md)
+
 Fonbot bir CLI tool değil — bir **engine**. İnsan kullanıcı doğrudan terminale girip Python komutu yazmaz. Bunun yerine bir **AI operator** (Claude Code, Codex, Gemini CLI, Hermes, OpenHands, vs.) fonbot'u çalıştırır, çıktısını okur, kullanıcıya insan dilinde açıklar.
 
 Saf Python karar veremez. AI agent karar veremez (her sefer farklı çıkarır). İkisi bir arada → güçlü: Python deterministik skorlama yapar, AI agent stratejiyi evrimleştirir, harici bağlamı entegre eder, kullanıcıyla konuşur.
@@ -32,9 +34,6 @@ AI operator ne yapar:
 - Harici araştırmayı (Grok cevabı, X yorumu, haber) `research/` altına entegre eder
 - Kullanıcı strateji ayarı önerirse `strategy/weights.json`'u değiştirmek için onay alır, değiştirir, log'lar
 - Yeni provider / sinyal eklenmesi gerekirse `PROVIDER_TEMPLATE.md` / `SIGNAL_TEMPLATE.md`'yi takip eder
-
-Detaylı operator manual: `AGENTS.md`.
-Sistem akışının adım adım anlatımı: `HOW_IT_WORKS.md`.
 
 ## Mevcut kapsam ve yol haritası
 
