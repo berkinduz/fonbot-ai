@@ -8,6 +8,7 @@ from typing import List
 from allocator import FundAllocator
 from analyzer import FundAnalyzer
 from article_fetcher import fetch_article
+from backtester import SimpleBacktester, render_summary
 from breadth_analyzer import BreadthAnalyzer
 from config import FundbotConfig
 from data_fetcher import TEFASDataFetcher
@@ -36,7 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--codes", type=str, default="", help="Comma-separated fund codes to restrict the universe (debug/sanity-check). Default: full TEFAS YAT universe.")
     parser.add_argument("--deep-analysis", action="store_true", help="Keep more verbose candidate context in report")
     parser.add_argument("--force-refresh", action="store_true", help="Ignore cached histories where provider supports refresh")
-    parser.add_argument("--backtest", action="store_true", help="Run simple backtest helper (requires prepared returns; placeholder safe)")
+    parser.add_argument("--backtest", action="store_true", help="Replay decisions.jsonl + cached prices and evaluate realized strategy returns vs money-market and top-3 baselines.")
+    parser.add_argument("--backtest-window", type=int, default=30, help="Evaluation window in days (default 30).")
     parser.add_argument("--explain", action="store_true", help="Print strategy explanation")
     parser.add_argument("--status", action="store_true", help="Print engine state for AI operators: cache age, last decision, pending research, last strategy change. Use this at the start of every session.")
     parser.add_argument("--healthcheck", action="store_true", help="Run data provider smoke checks and exit (no recommendation)")
@@ -187,9 +189,11 @@ def run(argv: List[str] | None = None) -> int:
     if args.status:
         return _print_status(out)
     if args.backtest:
-        text = "Backtest module is available; provide prepared monthly returns before interpreting results. No fake backtest generated."
+        config = FundbotConfig()
+        summary = SimpleBacktester(config, evaluation_window_days=args.backtest_window).run()
+        text = render_summary(summary)
         out.print(text) if out else print(text)
-        return 0
+        return 0 if summary.decisions_evaluated > 0 else 1
     if args.healthcheck:
         config = FundbotConfig()
         rows = run_provider_smoke_checks(config, sample_code=args.healthcheck_code.upper())

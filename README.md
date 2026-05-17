@@ -124,6 +124,10 @@ python3 main.py --record-transaction \
   --tx-code AFT --tx-action BUY --tx-amount 42000 \
   --tx-date 2026-05-20 --tx-confirmed --tx-role main_opportunity
 
+# Geçmiş kararları cache'lenmiş fiyatlarla değerlendir (gerçek backtest)
+python3 main.py --backtest
+python3 main.py --backtest --backtest-window 60
+
 # Stratejiyi açıkla
 python3 main.py --explain
 ```
@@ -251,8 +255,9 @@ python3 -m unittest discover -s tests
 
 - TEFAS public API'si haber vermeden değişebilir; provider katmanı güncellenmesi gerek.
 - TEFAS rate-limit (~6 req/dk) — geniş evren fetch'i kasıtlı yavaş.
-- Cache hit'te metadata kayboluyor (`name=code, category="cached"`) — money market keyword matching o durumda çalışmıyor. Bilinen bug, yakında düzelir.
 - Google News RSS Türkçe sonuçlar dönüyor ama yapısı değişebilir; scanner failure'ı sessizce log'lanır, engine çalışmaya devam eder.
+- KAP direct API genelde user-agent bloku düşürür; engine otomatik `site:kap.org.tr` Google News fallback'ine geçer (degraded ama çalışır).
+- Backtester değerlendirme penceresi (default 30 gün) cache'deki fiyat geçmişine bağlıdır; pencere için fiyat yoksa o karar "skipped" olarak raporlanır, sahte sonuç üretilmez.
 - Backtester şu an minimal. Gerçek aylık rebalance simülatörü yol haritasında.
 - Macro rejim katmanı bir modifier, tahmin motoru değil.
 

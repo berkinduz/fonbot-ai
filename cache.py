@@ -71,6 +71,46 @@ class SQLiteCache:
             df["date"] = pd.to_datetime(df["date"])
         return df
 
+    def save_metadata(self, df: pd.DataFrame) -> None:
+        """Persist fund metadata (name, category, aum, stock_ratio) for later cache hits.
+
+        Without this, cache-hit decisions lose human-readable fund names and
+        categories (the universe builder falls back to `name=code` which breaks
+        money-market keyword detection). Called after every successful provider
+        fetch.
+        """
+        if df.empty:
+            return
+        keep_cols = ["code", "name", "category", "aum", "stock_ratio"]
+        for col in keep_cols:
+            if col not in df.columns:
+                df = df.assign(**{col: None})
+        rows = df[keep_cols].copy()
+        rows["code"] = rows["code"].astype(str).str.upper().str.strip()
+        rows = rows.drop_duplicates(subset=["code"], keep="last")
+        rows["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        with self._connect() as con:
+            rows.to_sql("_tmp_metadata", con, if_exists="replace", index=False)
+            con.execute(
+                """INSERT OR REPLACE INTO metadata(code, name, category, aum, stock_ratio, updated_at)
+                SELECT code, name, category, aum, stock_ratio, updated_at FROM _tmp_metadata"""
+            )
+            con.execute("DROP TABLE _tmp_metadata")
+
+    def load_metadata(self, codes: list) -> pd.DataFrame:
+        """Load cached metadata for a list of codes. Returns empty DF if none."""
+        if not codes:
+            return pd.DataFrame(columns=["code", "name", "category", "aum", "stock_ratio"])
+        placeholders = ",".join("?" for _ in codes)
+        upper_codes = [c.upper() for c in codes]
+        with self._connect() as con:
+            df = pd.read_sql_query(
+                f"SELECT code, name, category, aum, stock_ratio FROM metadata WHERE code IN ({placeholders})",
+                con,
+                params=upper_codes,
+            )
+        return df
+
     def price_cache_age(self, code: str) -> Optional[dict]:
         with self._connect() as con:
             row = con.execute(

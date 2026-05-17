@@ -75,6 +75,29 @@ Not: Otomatik external scanner Yahoo Finance makro proxy'leri ve Google News RSS
 {triggers}
 """
 
+    def _previous_change_block(self, change: Any | None) -> str:
+        if not change or not isinstance(change, dict):
+            return "- veri yok"
+        status = change.get("status", "unknown")
+        if status == "no_snapshots_yet":
+            return "- Henüz portföy snapshot'ı yok (ilk işlemden sonra oluşur)."
+        if status == "first_snapshot_only":
+            return "- Sadece bir snapshot var; değişim hesaplamak için en az iki snapshot lazım."
+        if status == "snapshot_unreadable":
+            return f"- Snapshot okunamadı: {change.get('error')}"
+        if change.get("no_change"):
+            return f"- Önceki snapshot ({change.get('previous_snapshot')}) ile aynı: pozisyon eklenmedi/çıkarılmadı, maliyet değişmedi."
+        lines = [f"- Önceki snapshot: {change.get('previous_snapshot')} ({change.get('previous_updated_at')})"]
+        if change.get("positions_added"):
+            lines.append(f"- Eklenen pozisyonlar: {', '.join(change['positions_added'])}")
+        if change.get("positions_removed"):
+            lines.append(f"- Kapatılan pozisyonlar: {', '.join(change['positions_removed'])}")
+        for ch in change.get("cost_amount_changes", []):
+            delta = ch.get("delta", 0)
+            arrow = "+" if delta > 0 else ""
+            lines.append(f"- {ch['code']} maliyet değişimi: {arrow}{delta:,.0f} TL (önce {ch['prev_cost']:,.0f} → şimdi {ch['curr_cost']:,.0f})")
+        return "\n".join(lines)
+
     def _research_block(self, research_notes: Any | None) -> str:
         if not research_notes:
             return "- Bu karar için kullanıcı sağlamalı dış araştırma notu yok. Engine yalnızca quant veri kullandı."
@@ -105,6 +128,9 @@ Not: Otomatik external scanner Yahoo Finance makro proxy'leri ve Google News RSS
 
 ### Mevcut Pozisyon Değerlendirmesi
 {evals}
+
+### Geçen Snapshot'tan Bu Yana Değişim
+{self._previous_change_block(portfolio_decision.previous_month_change)}
 
 ### Unrealized Durum
 - {portfolio_decision.unrealized_status}

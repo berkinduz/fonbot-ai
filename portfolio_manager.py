@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass
+from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from models import AllocationDecision
@@ -37,9 +40,11 @@ class PortfolioManager:
         portfolio_state: Dict[str, Any],
         current_scores: Dict[str, float],
         switch_advantage_threshold: float = 8.0,
+        snapshots_dir: Optional[Path] = None,
     ) -> PortfolioDecision:
         positions = portfolio_state.get('positions', {}) or {}
         exposure = self._exposure(positions)
+        previous_change = self._diff_against_previous_snapshot(positions, snapshots_dir)
         fresh_code = fresh_allocation.aggressive_fund.code
         existing_main = self._main_position(positions)
         current_position_evaluation: List[str] = []
@@ -91,7 +96,7 @@ class PortfolioManager:
             ),
             question_b=f"Current portfolio action: {action}.",
             current_exposure=exposure,
-            previous_month_change={'status': 'unknown_without_prior_snapshot_comparison'},
+            previous_month_change=previous_change,
             current_position_evaluation=current_position_evaluation,
             unrealized_status='unknown: broker/current market value not synced; user must provide current values for P/L.',
             continuation_reasoning=self._continuation_reasoning(action, existing_main, fresh_code),
@@ -114,6 +119,55 @@ class PortfolioManager:
             totals[role] = totals.get(role, 0.0) + amount
             totals['total'] += amount
         return {k: round(v, 2) for k, v in totals.items()}
+
+    def _diff_against_previous_snapshot(self, current_positions: Dict[str, Dict[str, Any]], snapshots_dir: Optional[Path]) -> Dict[str, Any]:
+        """Compare current positions against the most recent snapshot.
+
+        Snapshots live under portfolio/snapshots/*.json and are written every
+        time a confirmed transaction mutates state. The "previous snapshot" is
+        the snapshot taken before the latest mutation — i.e. the second-most-
+        recent one. If only one snapshot exists, compare against empty.
+        """
+        snap_dir = Path(snapshots_dir) if snapshots_dir else Path(__file__).resolve().parent / 'portfolio' / 'snapshots'
+        if not snap_dir.exists():
+            return {'status': 'no_snapshots_yet', 'positions_now': len(current_positions)}
+        snapshots = sorted(snap_dir.glob('*.json'))
+        if len(snapshots) < 2:
+            return {
+                'status': 'first_snapshot_only',
+                'positions_now': len(current_positions),
+                'note': 'Need at least two snapshots to compute change.',
+            }
+        # Compare the previous snapshot (second to last) against current state
+        prev_path = snapshots[-2]
+        try:
+            prev_state = json.loads(prev_path.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError) as exc:
+            return {'status': 'snapshot_unreadable', 'error': str(exc)}
+        prev_positions = prev_state.get('positions', {}) or {}
+        prev_codes = set(prev_positions.keys())
+        curr_codes = set(current_positions.keys())
+        added = sorted(curr_codes - prev_codes)
+        removed = sorted(prev_codes - curr_codes)
+        kept = sorted(curr_codes & prev_codes)
+        cost_changes: List[Dict[str, Any]] = []
+        for code in kept:
+            prev_cost = float(prev_positions[code].get('cost_amount', 0.0))
+            curr_cost = float(current_positions[code].get('cost_amount', 0.0))
+            delta = round(curr_cost - prev_cost, 2)
+            if abs(delta) >= 0.01:
+                cost_changes.append({'code': code, 'prev_cost': prev_cost, 'curr_cost': curr_cost, 'delta': delta})
+        prev_updated = str(prev_state.get('updated_at') or '')
+        return {
+            'status': 'compared',
+            'previous_snapshot': prev_path.name,
+            'previous_updated_at': prev_updated,
+            'positions_added': added,
+            'positions_removed': removed,
+            'positions_kept': kept,
+            'cost_amount_changes': cost_changes,
+            'no_change': not (added or removed or cost_changes),
+        }
 
     def _continuation_reasoning(self, action: str, existing_main: Optional[Dict[str, Any]], fresh_code: str) -> List[str]:
         existing_code = existing_main.get('code') if existing_main else None

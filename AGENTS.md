@@ -100,6 +100,26 @@ When the user shares an external research output (Grok, X, news, Gemini, etc.):
 
 **Hard rule:** research notes are CONTEXT ONLY. They never override quant scoring. If the user expects fonbot to "act on Grok's tip", you explain this rule clearly. The engine treats narrative as tertiary; you must too.
 
+### 3.3b Past decision evaluation ("önerilerimiz tutuyor muydu")
+
+If the user wants to know whether past recommendations actually worked:
+
+```bash
+python3 main.py --backtest
+python3 main.py --backtest --backtest-window 60
+```
+
+This replays `reports/decisions.jsonl` against cached prices and prints:
+- mean / median portfolio return over the evaluation window
+- hit rate vs money-market only (the defensive leg alone)
+- hit rate vs equal-weight top-3 candidates
+- per-decision breakdown
+
+Interpret results honestly:
+- One run of `--backtest` is a sanity check, not validation. A 60% hit rate over 5 decisions tells you almost nothing.
+- Skipped decisions (insufficient cached prices) are NOT failures — they mean the cache doesn't have data for that window. Surface this when explaining.
+- If outperformance vs money-market is negative across many decisions, the strategy is genuinely underperforming and a strategy review is warranted (jump to §3.4).
+
 ### 3.4 Strategy evolution ("şu ağırlığı denesek")
 
 If the user proposes a strategy tweak (e.g. "3 aylık momentum ağırlığı çok yüksek değil mi?"):

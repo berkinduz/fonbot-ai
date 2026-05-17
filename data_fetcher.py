@@ -74,6 +74,8 @@ class TEFASDataFetcher:
         for code, hist in result.histories.items():
             source = result.source_attribution.get(code, "provider")
             self.cache.save_prices(hist, source=source)
+        if not result.metadata.empty:
+            self.cache.save_metadata(result.metadata)
 
         if not result.histories and requested_codes:
             histories, metadata, cache_ages = self._load_fresh_cached_codes(requested_codes)
@@ -117,9 +119,24 @@ class TEFASDataFetcher:
             cached = self.cache.load_prices(code)
             if not cached.empty:
                 histories[code] = cached
-        metadata = pd.DataFrame(
-            [{"code": c, "name": c, "category": "cached", "aum": None, "stock_ratio": None} for c in histories]
-        )
+        # Prefer cached metadata when available — keyword-based detection
+        # downstream needs real names/categories, not "cached" placeholders.
+        cached_meta = self.cache.load_metadata(list(histories.keys()))
+        meta_by_code = {row["code"]: row for _, row in cached_meta.iterrows()} if not cached_meta.empty else {}
+        rows = []
+        for c in histories:
+            m = meta_by_code.get(c)
+            if m is not None:
+                rows.append({
+                    "code": c,
+                    "name": m.get("name") or c,
+                    "category": m.get("category") or "cached",
+                    "aum": None if pd.isna(m.get("aum")) else float(m.get("aum")),
+                    "stock_ratio": None if pd.isna(m.get("stock_ratio")) else float(m.get("stock_ratio")),
+                })
+            else:
+                rows.append({"code": c, "name": c, "category": "cached", "aum": None, "stock_ratio": None})
+        metadata = pd.DataFrame(rows)
         return histories, metadata, ages
 
     def _stale_or_missing_cache_notes(self, codes: List[str]) -> List[str]:
