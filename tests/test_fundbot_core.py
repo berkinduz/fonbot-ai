@@ -64,7 +64,9 @@ class FundbotCoreTests(unittest.TestCase):
         self.assertTrue(math.isclose(decision.aggressive_ratio + decision.defensive_ratio, 1.0))
         self.assertIn(decision.action, {"BUY", "HOLD", "SWITCH", "REDUCE", "INCREASE"})
         self.assertTrue(decision.data_integrity.verified_data)
-        self.assertIn("broker", " ".join(decision.data_integrity.unavailable_data).lower())
+        # broker availability is no longer a confidence-blocking gap; it lives
+        # in estimated_data as an operational note only.
+        self.assertIn("execution timing", " ".join(decision.data_integrity.estimated_data).lower())
 
     def test_universe_builder_filters_short_stale_and_anomalous_histories(self):
         metadata = pd.DataFrame(
@@ -107,7 +109,7 @@ class FundbotCoreTests(unittest.TestCase):
             self.assertEqual(len(history_lines), 2)
             report_text = paths["report"].read_text(encoding="utf-8")
             self.assertIn("veri yok", report_text.lower())
-            self.assertIn("broker", report_text.lower())
+            self.assertIn("execution timing", report_text.lower())
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ class PortfolioManager:
         portfolio_state: Dict[str, Any],
         current_scores: Dict[str, float],
         switch_advantage_threshold: float = 8.0,
+        defensive_switch_threshold: float = 5.0,
         snapshots_dir: Optional[Path] = None,
     ) -> PortfolioDecision:
         positions = portfolio_state.get('positions', {}) or {}
@@ -83,8 +84,38 @@ class PortfolioManager:
                 recommended_transactions.append({'action': 'BUY', 'code': fresh_code, 'ratio': fresh_allocation.aggressive_ratio})
                 current_position_evaluation.append('Existing fund no longer deserves protection; sunk-cost avoidance points to switch.')
 
+        # Defensive (money market) sticky policy: avoid month-to-month MMF
+        # switching for tiny score deltas. Money market funds are commodities;
+        # the friction (T+1 settlement, lost yield day, mental overhead) usually
+        # outweighs a 1-3 point quant edge. Only switch when the fresh MMF
+        # has a meaningfully higher score than the existing one.
+        defensive_action_note: Optional[str] = None
+        effective_defensive_code = fresh_allocation.defensive_fund.code
+        existing_def = self._defensive_position(positions)
         if fresh_allocation.defensive_ratio > 0:
-            recommended_transactions.append({'action': 'BUY_OR_HOLD', 'code': fresh_allocation.defensive_fund.code, 'ratio': fresh_allocation.defensive_ratio})
+            if existing_def and existing_def['code'] != fresh_allocation.defensive_fund.code:
+                existing_def_score = float(current_scores.get(existing_def['code'], 0.0))
+                fresh_def_score = float(current_scores.get(fresh_allocation.defensive_fund.code, 0.0))
+                def_advantage = fresh_def_score - existing_def_score
+                if def_advantage < defensive_switch_threshold:
+                    effective_defensive_code = existing_def['code']
+                    defensive_action_note = (
+                        f"Defensive sticky: keeping {existing_def['code']} (score {existing_def_score:.1f}) "
+                        f"instead of switching to {fresh_allocation.defensive_fund.code} (score {fresh_def_score:.1f}); "
+                        f"advantage {def_advantage:+.1f} below threshold {defensive_switch_threshold}."
+                    )
+                    current_position_evaluation.append(defensive_action_note)
+                    recommended_transactions.append({'action': 'HOLD', 'code': existing_def['code'], 'ratio': fresh_allocation.defensive_ratio, 'note': 'defensive sticky: avoid commodity MMF churn'})
+                else:
+                    defensive_action_note = (
+                        f"Defensive switch: {existing_def['code']} -> {fresh_allocation.defensive_fund.code} "
+                        f"(advantage {def_advantage:+.1f} >= {defensive_switch_threshold})."
+                    )
+                    current_position_evaluation.append(defensive_action_note)
+                    recommended_transactions.append({'action': 'SELL', 'code': existing_def['code'], 'ratio': 'full', 'note': 'defensive switch'})
+                    recommended_transactions.append({'action': 'BUY', 'code': fresh_allocation.defensive_fund.code, 'ratio': fresh_allocation.defensive_ratio})
+            else:
+                recommended_transactions.append({'action': 'BUY_OR_HOLD', 'code': fresh_allocation.defensive_fund.code, 'ratio': fresh_allocation.defensive_ratio})
 
         return PortfolioDecision(
             fresh_allocation=fresh_allocation,
@@ -110,6 +141,12 @@ class PortfolioManager:
         if role_matches:
             return max(role_matches, key=lambda p: float(p.get('cost_amount', 0.0)))
         return max(positions.values(), key=lambda p: float(p.get('cost_amount', 0.0)))
+
+    def _defensive_position(self, positions: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        matches = [p for p in positions.values() if p.get('role') == 'defensive_money_market']
+        if not matches:
+            return None
+        return max(matches, key=lambda p: float(p.get('cost_amount', 0.0)))
 
     def _exposure(self, positions: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
         totals: Dict[str, float] = {'main_opportunity': 0.0, 'defensive_money_market': 0.0, 'unknown': 0.0, 'total': 0.0}

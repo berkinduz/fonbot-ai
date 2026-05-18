@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--status", action="store_true", help="Print engine state for AI operators: cache age, last decision, pending research, last strategy change. Use this at the start of every session.")
     parser.add_argument("--healthcheck", action="store_true", help="Run data provider smoke checks and exit (no recommendation)")
     parser.add_argument("--healthcheck-code", type=str, default="AFT", help="Sample fund code for healthcheck")
+    parser.add_argument("--strict-healthcheck", action="store_true", help="Treat WARN as failure (exit 1). Default: only real FAIL exits 1.")
     parser.add_argument("--record-transaction", action="store_true", help="Record a user-confirmed/manual portfolio transaction")
     parser.add_argument("--tx-code", type=str, default="", help="Transaction fund code")
     parser.add_argument("--tx-name", type=str, default="", help="Transaction fund name")
@@ -197,8 +198,16 @@ def run(argv: List[str] | None = None) -> int:
     if args.healthcheck:
         config = FundbotConfig()
         rows = run_provider_smoke_checks(config, sample_code=args.healthcheck_code.upper())
+        pass_n = warn_n = fail_n = 0
         for row in rows:
-            line = f"[{row.get('status','?').upper():4}] {row.get('name')}"
+            status = str(row.get("status", "?")).lower()
+            if status == "pass":
+                pass_n += 1
+            elif status == "warn":
+                warn_n += 1
+            elif status == "fail":
+                fail_n += 1
+            line = f"[{status.upper():4}] {row.get('name')}"
             unavailable = row.get("unavailable_data") or []
             if unavailable:
                 line += " | " + "; ".join(str(u) for u in unavailable[:3])
@@ -206,7 +215,14 @@ def run(argv: List[str] | None = None) -> int:
             if histories:
                 line += f" | histories={histories}"
             out.print(line) if out else print(line)
-        return 0 if all(r.get("status") == "pass" for r in rows) else 1
+        summary = f"summary: {pass_n} PASS, {warn_n} WARN, {fail_n} FAIL"
+        out.print(summary) if out else print(summary)
+        # Exit code: real FAIL = 1; WARN only fails under --strict-healthcheck.
+        if fail_n > 0:
+            return 1
+        if args.strict_healthcheck and warn_n > 0:
+            return 1
+        return 0
     if args.record_research:
         return _record_research(args, out)
     if args.fetch_article:
@@ -331,6 +347,7 @@ def run(argv: List[str] | None = None) -> int:
         confidence_cap=None if args.ignore_external_context_gate else external_context.confidence_cap,
         external_reasons=external_context.reasons,
         external_rerun_triggers=external_context.rerun_triggers,
+        data_quality_multiplier=fetch.confidence_multiplier,
     )
     candidate_rows = [{"code": c.code, "name": c.name, "score": c.score, "confidence": c.confidence} for c in opportunities[:3]]
     current_scores = {c.code: c.score for c in opportunities}

@@ -155,8 +155,9 @@ class TEFASDataFetcher:
         return [f"no fresh cache for {code}" for code in requested if code not in histories]
 
     def _always_unavailable_context(self) -> List[str]:
-        return [
-            "X/Twitter sentiment unavailable unless user supplies external research",
-            "live market news unavailable unless user supplies verified excerpts",
-            "broker/bank fund availability and order constraints not accessible from fundbot",
-        ]
+        # NB: social-media sentiment is intentionally out of scope (not "unavailable").
+        # News context is autonomously fetched by external_scan (Google News + KAP),
+        # so it's no longer "unavailable unless user supplies".
+        # Broker availability is non-blocking per fonbot's operating decision:
+        # TEFAS-listed funds are treated as buyable during business hours.
+        return []

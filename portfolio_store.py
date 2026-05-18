@@ -24,11 +24,31 @@ class PortfolioStore:
         self.snapshots_dir = self.portfolio_dir / 'snapshots'
         self.portfolio_dir.mkdir(parents=True, exist_ok=True)
         self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+        # Monotonic per-instance counter so two snapshots in the same microsecond
+        # still sort deterministically by creation order.
+        self._snapshot_seq = self._initial_snapshot_seq()
         if not self.state_path.exists():
             self._write_state(self._empty_state())
 
+    def _initial_snapshot_seq(self) -> int:
+        """Continue snapshot sequence numbering across process restarts."""
+        if not self.snapshots_dir.exists():
+            return 0
+        max_seq = 0
+        for path in self.snapshots_dir.glob('*.json'):
+            parts = path.stem.split('_')
+            # Filename: {timestamp}_{seq6}_{suffix}.json
+            if len(parts) >= 2 and parts[1].isdigit():
+                max_seq = max(max_seq, int(parts[1]))
+        return max_seq
+
     def _now(self) -> str:
+        # seconds precision: stable id space for transactions
         return datetime.now(timezone.utc).isoformat(timespec='seconds')
+
+    def _now_for_filename(self) -> str:
+        # microsecond precision + Z, safe for filesystem (no colons)
+        return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H%M%S.%fZ')
 
     def _empty_state(self) -> Dict[str, Any]:
         return {
@@ -49,8 +69,13 @@ class PortfolioStore:
         self.state_path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
 
     def _snapshot(self, state: Dict[str, Any], suffix: str) -> Path:
-        stamp = self._now().replace(':', '').replace('+', 'Z')
-        path = self.snapshots_dir / f'{stamp}_{suffix}.json'
+        # Deterministic ordering: timestamp with microseconds + monotonic seq.
+        # Two snapshots written in the same microsecond still sort correctly by
+        # the zero-padded seq segment, so portfolio_manager's snapshot diff
+        # never picks the "wrong" previous snapshot.
+        self._snapshot_seq += 1
+        stamp = self._now_for_filename()
+        path = self.snapshots_dir / f'{stamp}_{self._snapshot_seq:06d}_{suffix}.json'
         path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
         return path
 

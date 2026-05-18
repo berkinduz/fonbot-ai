@@ -30,8 +30,14 @@ class FundAllocator:
         confidence_cap: Optional[float] = None,
         external_reasons: Optional[List[str]] = None,
         external_rerun_triggers: Optional[List[str]] = None,
+        data_quality_multiplier: float = 1.0,
     ) -> AllocationDecision:
         composite = max(0.0, min(100.0, opportunity_score * self.a["opportunity_weight"] + regime_score * self.a["regime_weight"] - risk_penalty * self.a["risk_penalty_weight"]))
+        # Data quality multiplier: fresh live = 1.0, fresh cache = ~0.9,
+        # cache-after-live-failure = 0.65. Shrinks composite so weaker data
+        # produces a smaller aggressive band and a visibly lower confidence.
+        if data_quality_multiplier < 1.0:
+            composite = composite * float(data_quality_multiplier)
         if confidence_cap is not None:
             composite = min(composite, float(confidence_cap))
         aggressive_ratio = self._band_for(composite)
@@ -51,18 +57,22 @@ class FundAllocator:
         ]
         if confidence_cap is not None:
             reasons.append(f"Confidence capped at {confidence_cap:.0f}/100 by external context gate.")
+        if data_quality_multiplier < 1.0:
+            reasons.append(f"Data quality multiplier {data_quality_multiplier:.2f} applied (degraded data: cache/partial/conflict).")
         reasons.extend(external_reasons or [])
         verified = [self.config.verified_quant_label]
         verified.extend(external_verified_data or [])
-        unavailable = [
-            "broker-specific liquidity/availability must be checked manually before execution",
-        ]
+        # Operational reminder only; not a confidence-blocking gap.
+        # TEFAS-listed funds are treated as buyable during business hours
+        # per fonbot's operating decision.
+        unavailable = []
         unavailable.extend(external_unavailable_data or [])
+        operational_notes = ["execution timing: place TEFAS orders during business hours; manual execution"]
         user_provided = list(external_user_provided_data or [])
         data_integrity = DataIntegrity(
             verified_data=verified,
             unavailable_data=unavailable,
-            estimated_data=["regime score modified by external context macro proxies when present"],
+            estimated_data=["regime score modified by external context macro proxies when present"] + operational_notes,
             user_provided_data=user_provided,
         )
         rerun_triggers = [

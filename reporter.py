@@ -66,6 +66,9 @@ Kaynak atfı:
 Erişilemeyen / veri yok:
 {unavailable_text}
 
+Tahmin / operasyonel notlar:
+{self._estimated_block(decision.data_integrity.estimated_data)}
+
 Not: Otomatik external scanner Yahoo Finance makro proxy'leri ve Google News RSS'inden bağlam çeker. Sentiment / sosyal medya akışı kullanılmaz. Tüm dış veri yalnızca conviction'ı **modifiye eder**, asla quant skoru geçersiz kılmaz.
 
 ## Kullanıcı Bağlamı (research/)
@@ -74,6 +77,11 @@ Not: Otomatik external scanner Yahoo Finance makro proxy'leri ve Google News RSS
 ## Yeniden Çalıştırma Tetikleri
 {triggers}
 """
+
+    def _estimated_block(self, items: list) -> str:
+        if not items:
+            return "- yok"
+        return "\n".join(f"- {x}" for x in items)
 
     def _previous_change_block(self, change: Any | None) -> str:
         if not change or not isinstance(change, dict):
