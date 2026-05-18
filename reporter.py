@@ -69,7 +69,7 @@ Erişilemeyen / veri yok:
 Tahmin / operasyonel notlar:
 {self._estimated_block(decision.data_integrity.estimated_data)}
 
-Not: Otomatik external scanner Yahoo Finance makro proxy'leri ve Google News RSS'inden bağlam çeker. Sentiment / sosyal medya akışı kullanılmaz. Tüm dış veri yalnızca conviction'ı **modifiye eder**, asla quant skoru geçersiz kılmaz.
+Not: Otomatik external scanner Yahoo Finance makro proxy'leri, TCMB/BDDK resmi makro verileri (erişilebildiğinde) ve Google News RSS'inden bağlam çeker. Sentiment / sosyal medya akışı kullanılmaz. Tüm dış veri yalnızca conviction'ı **modifiye eder**, asla quant skoru geçersiz kılmaz.
 
 ## Kullanıcı Bağlamı (research/)
 {self._research_block(research_notes)}

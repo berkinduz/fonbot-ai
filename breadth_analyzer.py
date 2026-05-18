@@ -6,9 +6,11 @@ on macro proxies. The intuition: when many funds simultaneously show positive
 negative, it's a weak regime. This signal is independent of Yahoo / Google
 and works even when external scanner is down.
 
-The breadth score replaces or augments the neutral 60/100 fallback in
-RegimeDetector. It is bounded to [25, 95] so it never produces extreme
-all-in or all-out behavior on its own — it is a modifier, not a strategy.
+The breadth score is the base regime score used by the allocator. Official
+macro, Yahoo/KAP/news and calendar context apply bounded deltas on top through
+`external_context`; they do not create a second neutral regime layer. Breadth is
+bounded to [25, 95] so it never produces extreme all-in or all-out behavior on
+its own — it is a modifier, not a strategy.
 """
 from __future__ import annotations
 

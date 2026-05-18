@@ -62,7 +62,11 @@ class ExternalIntelligenceAnalyzer:
         triggers: List[str] = []
 
         macro = sections.get("macro_regime") or {}
-        macro_items = macro.get("items") if isinstance(macro, dict) else []
+        official_macro = sections.get("official_macro") or {}
+        macro_items = _merge_macro_items(
+            macro.get("items") if isinstance(macro, dict) else [],
+            official_macro.get("items") if isinstance(official_macro, dict) else [],
+        )
         if macro_items:
             verified.append("external intelligence macro modifiers evaluated")
         else:
@@ -130,7 +134,11 @@ class ExternalIntelligenceAnalyzer:
             triggers.append("TR-specific stress pattern (BIST↓ + USDTRY↑) resolves")
 
         rates = sections.get("rates_inflation") or {}
-        rate_items = rates.get("items") if isinstance(rates, dict) else []
+        official_rate_items = [
+            item for item in ((official_macro.get("items") or []) if isinstance(official_macro, dict) else [])
+            if item.get("policy_rate") is not None or item.get("inflation_yoy") is not None
+        ]
+        rate_items = official_rate_items or list((rates.get("items") or []) if isinstance(rates, dict) else [])
         if rate_items:
             verified.append("external intelligence rates/inflation modifiers evaluated")
         else:
@@ -234,6 +242,22 @@ def _window_summary(c1m: float | None, c3m: float | None, c6m: float | None) -> 
     if c6m is not None:
         parts.append(f"6M {c6m:+.1f}%")
     return " / ".join(parts)
+
+
+def _merge_macro_items(base_items: list, official_items: list) -> list:
+    """Prefer official observations over same-label market proxies."""
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+    for item in list(base_items or []) + list(official_items or []):
+        if "change_1m_pct" not in item:
+            continue
+        label = str(item.get("label") or "").upper()
+        if not label:
+            continue
+        if label not in merged:
+            order.append(label)
+        merged[label] = item
+    return [merged[label] for label in order]
 
 
 def _to_float(value: Any) -> float | None:

@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from external_context import load_external_context, missing_context
 from external_intelligence import ExternalIntelligenceAnalyzer
 from external_scan import ExternalScanner
+from official_macro import OfficialMacroScanner
 
 
 # Minimal fake fetcher: returns deterministic payloads per URL substring.
@@ -59,6 +60,7 @@ class ExternalScanTests(unittest.TestCase):
             self.assertTrue(out.exists())
             self.assertEqual(ctx["schema"], "fundbot_external_context_v1")
             self.assertIn("macro_regime", ctx["sections"])
+            self.assertIn("official_macro", ctx["sections"])
             self.assertIn("rates_inflation", ctx["sections"])
             self.assertIn("market_news", ctx["sections"])
             self.assertGreater(len(ctx["sections"]["macro_regime"]["items"]), 0)
@@ -73,6 +75,55 @@ class ExternalScanTests(unittest.TestCase):
 
         self.assertGreater(len(ctx["sections"]["macro_regime"]["unknowns"]), 0)
         self.assertGreater(len(ctx["sections"]["market_news"]["unknowns"]), 0)
+
+
+class OfficialMacroScannerTests(unittest.TestCase):
+    def test_evds_without_key_is_optional_unknown_not_exception(self):
+        def fake_fetch(url):
+            raise AssertionError("EVDS should not be called without a key")
+
+        result = OfficialMacroScanner(fetch_text=fake_fetch, evds_key="").scan()
+
+        self.assertEqual(result["items"], [])
+        self.assertTrue(any("TCMB_EVDS_API_KEY" in u for u in result["unknowns"]))
+
+    def test_evds_parses_fx_and_policy_inflation_gap(self):
+        def fake_fetch(url):
+            if "TP.DK.USD.A" in url:
+                return json.dumps({"items": [
+                    {"Tarih": "01-04-2026", "TP_DK_USD_A": "32.0"},
+                    {"Tarih": "01-05-2026", "TP_DK_USD_A": "34.0"},
+                ]})
+            if "TP.DK.EUR.A" in url:
+                return json.dumps({"items": [{"Tarih": "01-05-2026", "TP_DK_EUR_A": "37.0"}]})
+            if "TP.FE.OKTG01" in url:
+                return json.dumps({"items": [{"Tarih": "01-05-2026", "TP_FE_OKTG01": "55.0"}]})
+            if "TP.APIFON4" in url:
+                return json.dumps({"items": [{"Tarih": "01-05-2026", "TP_APIFON4": "42.0"}]})
+            if "bddk.org.tr" in url:
+                return "Tarih: 30 Nisan 2026 Toplam Krediler 16.230.183 9.324.320 25.554.504"
+            raise ValueError(url)
+
+        result = OfficialMacroScanner(fetch_text=fake_fetch, evds_key="test-key").scan()
+
+        usdtry = next(i for i in result["items"] if i.get("label") == "USDTRY")
+        real_rate = next(i for i in result["items"] if i.get("label") == "Turkey policy/inflation (EVDS)")
+        self.assertEqual(usdtry["change_1m_pct"], 6.25)
+        self.assertEqual(real_rate["real_rate_gap"], -13.0)
+
+    def test_bddk_weekly_parses_known_credit_metrics(self):
+        html = """
+        <html><body>Tarih: 30 Nisan 2026 Perşembe
+        Toplam Krediler 16.230.183 9.324.320 25.554.504
+        Tüketici Kredileri ve Bireysel Kredi Kartları 6.324.470 11.024 6.335.495
+        </body></html>
+        """
+
+        result = OfficialMacroScanner(fetch_text=lambda url: html, evds_key="")._scan_bddk_weekly()
+
+        metrics = result["items"][0]["metrics"]
+        self.assertEqual(metrics["total_loans"]["total"], 25554504.0)
+        self.assertEqual(metrics["consumer_loans_and_cards"]["tl"], 6324470.0)
 
 
 class ExternalIntelligenceTests(unittest.TestCase):
@@ -113,6 +164,32 @@ class ExternalIntelligenceTests(unittest.TestCase):
         self.assertEqual(result.risk_penalty_delta, 0)
         self.assertEqual(result.regime_score_delta, 0)
         self.assertEqual(result.avoid_funds, [])
+
+    def test_official_macro_replaces_same_label_proxy_for_fx_stress(self):
+        ctx = {
+            "sections": {
+                "macro_regime": {"items": [{"label": "USDTRY", "change_1m_pct": 1.0}]},
+                "official_macro": {"items": [{"source": "tcmb_evds", "label": "USDTRY", "change_1m_pct": 8.0}]},
+            }
+        }
+
+        result = ExternalIntelligenceAnalyzer().analyze(ctx)
+
+        self.assertGreaterEqual(result.risk_penalty_delta, 8)
+        self.assertTrue(any("USDTRY rose 8.0%" in r for r in result.reasons))
+
+    def test_official_policy_inflation_replaces_rss_derived_rates(self):
+        ctx = {
+            "sections": {
+                "rates_inflation": {"items": [{"policy_rate": 42, "inflation_yoy": 40}]},
+                "official_macro": {"items": [{"source": "tcmb_evds", "label": "Turkey policy/inflation (EVDS)", "policy_rate": 42, "inflation_yoy": 55}]},
+            }
+        }
+
+        result = ExternalIntelligenceAnalyzer().analyze(ctx)
+
+        self.assertGreaterEqual(result.risk_penalty_delta, 10)
+        self.assertTrue(any("negative real-rate gap -13.0pp" in r for r in result.reasons))
 
 
 class ExternalContextGateTests(unittest.TestCase):

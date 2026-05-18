@@ -39,12 +39,13 @@ Bu süre boyunca engine arka planda şunları yapar:
 1. pytefas üzerinden tüm YAT fon evrenini çeker (~600 fon)
 2. Fund profiler ile her fonun gerçek asset breakdown'ını okur (deterministik money market detection)
 3. Yahoo Finance'ten 10 makro sembolü 3 farklı pencerede tarar
-4. Google News RSS'ten TR faiz/enflasyon/fon haberlerini tarar
-5. KAP disclosure'larını çeker (API blok atarsa Google News fallback)
-6. Calendar'dan 7 gün içindeki TCMB/TÜİK/FOMC olaylarını kontrol eder
-7. Breadth analyzer evren genelindeki momentum durumunu hesaplar
-8. Tüm dış sinyalleri bounded modifier'lara çevirir (risk delta, regime delta, confidence cap, avoid_funds)
-9. Skorlar, allocator'a verir, raporu yazar
+4. TCMB EVDS / BDDK resmi makro kaynaklarını dener
+5. Google News RSS'ten TR faiz/enflasyon/fon haberlerini tarar
+6. KAP disclosure'larını çeker (API blok atarsa Google News fallback)
+7. Calendar'dan 7 gün içindeki TCMB/TÜİK/FOMC olaylarını kontrol eder
+8. Breadth analyzer evren genelindeki momentum durumunu baz rejim olarak hesaplar
+9. Tüm dış sinyalleri bounded modifier'lara çevirir (risk delta, regime delta, confidence cap, avoid_funds)
+10. Skorlar, allocator'a verir, raporu yazar
 
 **AI agent** (rapor hazır olunca)
 
@@ -113,7 +114,7 @@ Hard rule: AI agent kullanıcının "evet" demediği bir işlemi state'e yazmaz.
 
 > "Kaydettim (`research/2026-05-31_grok_yariletken-q3.md`). Sonraki karar koşulduğunda otomatik bağlam olarak rapora girecek.
 >
-> Hatırlatma: Bu not quant skoru etkilemez — engine zaten Yahoo + Google News + KAP'tan kendi başına bağlam topluyor. Senin notun rapora ek bir paragraf olarak çıkacak."
+> Hatırlatma: Bu not quant skoru etkilemez — engine zaten TEFAS breadth + resmi makro + Yahoo + Google News + KAP'tan kendi başına bağlam topluyor. Senin notun rapora ek bir paragraf olarak çıkacak."
 
 ---
 
@@ -162,13 +163,14 @@ Backtester sahte hassasiyet üretmez — yetersiz cache'lenmiş fiyat varsa "ski
    │
    ├─► pytefas / direct TEFAS  ────► tüm fon fiyatları + asset breakdown
    ├─► Yahoo Finance (paralel)  ───► 10 sembol × 3 pencere
+   ├─► TCMB EVDS / BDDK         ───► resmi TR makro context
    ├─► Google News RSS         ────► TR faiz/enflasyon/haber
    ├─► KAP API → fallback      ────► fon disclosure'ları
    ├─► Calendar (lokal)        ────► 7 gün içindeki olaylar
    │
    ├─► Universe builder + fund profiler  → yatırılabilir evren
    ├─► Analyzer (per-fund)              → momentum/trend/volatilite + anomaly
-   ├─► Breadth analyzer                 → evren-içi rejim sinyali
+   ├─► Breadth analyzer                 → baz rejim sinyali
    ├─► External intelligence            → bounded modifier'lar (cross-source confirmation)
    ├─► External context gate            → freshness check + confidence cap
    │
@@ -196,6 +198,6 @@ Backtester sahte hassasiyet üretmez — yetersiz cache'lenmiş fiyat varsa "ski
 
 ## Özet
 
-Sen miktarı / niyeti söylersin. AI agent engine'i çağırır, raporu okur, sana Türkçe özetler. Engine arka planda TEFAS + Yahoo + Google News + KAP + calendar verisini otonom toplar, bounded modifier'lara çevirir, ratio üretir. Trade'i sen elle yaparsın, onayını AI agent'a iletirsin, bir sonraki ay döngü baştan başlar.
+Sen miktarı / niyeti söylersin. AI agent engine'i çağırır, raporu okur, sana Türkçe özetler. Engine arka planda TEFAS breadth + resmi makro + Yahoo + Google News + KAP + calendar verisini otonom toplar, bounded modifier'lara çevirir, ratio üretir. Trade'i sen elle yaparsın, onayını AI agent'a iletirsin, bir sonraki ay döngü baştan başlar.
 
 Her şey görünür: kararlar `reports/decisions.jsonl`'da, işlemler `portfolio/transaction_history.jsonl`'da, strateji değişiklikleri `strategy/history.jsonl`'da. Hiçbir şey gizli değil, hiçbir şey kullanıcı onayı olmadan kalıcı değişmiyor.

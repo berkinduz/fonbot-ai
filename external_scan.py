@@ -32,6 +32,7 @@ from typing import Callable, Iterable, List
 
 from config import FundbotConfig
 from kap_provider import KAPProvider
+from official_macro import OfficialMacroScanner
 
 FetchText = Callable[[str], str]
 
@@ -69,6 +70,7 @@ class ExternalScanner:
     def scan(self, codes: Iterable[str], output_path: Path | None = None) -> dict:
         codes = [c.strip().upper() for c in codes if c.strip()]
         macro = self._scan_macro()
+        official_macro = OfficialMacroScanner(fetch_text=self.fetch_text).scan()
         rates = self._scan_rates_inflation()
         news = self._scan_news(codes)
         kap_section = self._scan_kap(codes)
@@ -86,6 +88,7 @@ class ExternalScanner:
             "codes": codes,
             "sections": {
                 "macro_regime": macro,
+                "official_macro": official_macro,
                 "rates_inflation": rates,
                 "market_news": news,
                 "fund_specific": fund_specific,
@@ -95,8 +98,8 @@ class ExternalScanner:
                     "items": [],
                 },
             },
-            "risks": self._derive_risks(macro, rates, news, kap_section),
-            "sources": sorted(set(macro.get("sources", []) + rates.get("sources", []) + news.get("sources", []) + kap_section.get("sources", []))),
+            "risks": self._derive_risks(macro, rates, news, kap_section, official_macro),
+            "sources": sorted(set(macro.get("sources", []) + official_macro.get("sources", []) + rates.get("sources", []) + news.get("sources", []) + kap_section.get("sources", []))),
         }
         if output_path is not None:
             output_path = Path(output_path)
@@ -241,16 +244,21 @@ class ExternalScanner:
         unknowns = [] if matched else (["no recent fund-code-specific news items found in RSS scan"] if codes else ["no selected fund codes supplied"])
         return {"verified_facts": facts, "unknowns": unknowns, "items": matched}
 
-    def _derive_risks(self, macro: dict, rates: dict, news: dict, kap_section: dict | None = None) -> List[str]:
+    def _derive_risks(self, macro: dict, rates: dict, news: dict, kap_section: dict | None = None, official_macro: dict | None = None) -> List[str]:
         risks: List[str] = []
-        for item in macro.get("items", []):
+        macro_items = _merge_macro_items(macro.get("items", []), (official_macro or {}).get("items", []))
+        for item in macro_items:
             if item.get("label") == "USDTRY" and item.get("change_1m_pct", 0) > 5:
                 risks.append("USDTRY rose more than 5% over 1M; check FX/risk regime before aggressive allocation")
             if item.get("label") in {"Nasdaq", "SP500", "BIST100"} and item.get("change_1m_pct", 0) < -8:
                 risks.append(f"{item.get('label')} fell more than 8% over 1M; equity-fund risk backdrop weakened")
             if item.get("label") == "VIX" and item.get("change_1m_pct", 0) > 30:
                 risks.append("VIX surged over 30% in 1M; volatility regime elevated")
-        for item in rates.get("items", []):
+        official_rate_items = [
+            item for item in ((official_macro or {}).get("items", []))
+            if item.get("policy_rate") is not None or item.get("inflation_yoy") is not None
+        ]
+        for item in official_rate_items or rates.get("items", []):
             policy = item.get("policy_rate")
             inflation = item.get("inflation_yoy")
             if policy is not None and inflation is not None and policy - inflation < -10:
@@ -320,6 +328,22 @@ def _is_recent(published: str | None, max_age_days: int = 120) -> bool:
         return False
     age = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
     return 0 <= age.days <= max_age_days
+
+
+def _merge_macro_items(base_items: List[dict], official_items: List[dict]) -> List[dict]:
+    """Use official macro observations when they duplicate proxy labels."""
+    merged: dict[str, dict] = {}
+    order: List[str] = []
+    for item in list(base_items or []) + list(official_items or []):
+        if "change_1m_pct" not in item:
+            continue
+        label = str(item.get("label") or "").upper()
+        if not label:
+            continue
+        if label not in merged:
+            order.append(label)
+        merged[label] = item
+    return [merged[label] for label in order]
 
 
 def build_parser() -> argparse.ArgumentParser:

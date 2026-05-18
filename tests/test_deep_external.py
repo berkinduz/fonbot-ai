@@ -177,6 +177,19 @@ class BreadthAnalyzerTests(unittest.TestCase):
         self.assertEqual(breadth.label, "unknown")
         self.assertEqual(breadth.score, 50.0)
 
+    def test_breadth_verified_inputs_are_report_ready_without_legacy_macro_unavailable_noise(self):
+        metrics = [self._build_metric(f"F{i}", 0.1, 0.2, True) for i in range(5)]
+
+        breadth = BreadthAnalyzer().analyze(metrics)
+        report_inputs = list(breadth.verified_inputs) + [
+            f"regime baseline: breadth {breadth.label} ({breadth.score}/100, {int(breadth.positive_3m_pct*100)}% positive 3M)"
+        ]
+
+        joined = " ".join(report_inputs)
+        self.assertIn("breadth from", joined)
+        self.assertNotIn("interest-rate and inflation context not fetched automatically", joined)
+        self.assertNotIn("BIST/USDTRY/gold/Nasdaq live context not available", joined)
+
 
 class CalendarTests(unittest.TestCase):
     def test_event_modifier_returns_zero_when_no_events_within_window(self):

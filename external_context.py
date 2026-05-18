@@ -102,6 +102,10 @@ def load_external_context(path: Path | None, max_age_days: int = 3) -> ExternalC
         else:
             unavailable.append(missing_message)
 
+    official_macro = sections.get("official_macro")
+    if _section_has_verified_content(official_macro):
+        verified.append("external official_macro checked")
+
     verified.append(TEFAS_AVAILABILITY_FACT)
 
     risks = payload.get("risks") or []

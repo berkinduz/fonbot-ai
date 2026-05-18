@@ -44,6 +44,7 @@ Engine her karar koşumunda **kullanıcı girişi olmadan** şunları çeker:
 | TEFAS fiyat geçmişi | pytefas → direct TEFAS → manuel snapshot | Tüm YAT evreni, rate-limit aware |
 | TEFAS asset breakdown | pytefas `breakdown` view | Her fonun gerçek asset allocation'ı (deterministik money market detection) |
 | Makro proxy | Yahoo Finance (10 sembol × 1M/3M/6M) | USDTRY, EURTRY, Nasdaq, SP500, Gold, BIST100, US10Y, VIX, Brent, EM_Equity |
+| Resmi TR makro | TCMB EVDS + BDDK haftalık bülten | EVDS API key varsa resmi USDTRY/EURTRY/faiz/enflasyon; BDDK kredi/bankacılık bülteni |
 | Türkiye haber/faiz/enflasyon | Google News RSS | TCMB faiz, TÜİK enflasyon, market news, fon-spesifik aramalar |
 | KAP disclosure | KAP API → Google News `site:kap.org.tr` fallback | Otoriter TR fon disclosure'ları (tasfiye, yönetim değişikliği, vb.) |
 | Calendar | Hard-coded (yıllık güncellenir) | TCMB MPC, TÜİK CPI, FOMC tarihleri; 7 gün içindeyse pre-event risk |
@@ -99,6 +100,14 @@ python3 main.py --explain                    # Stratejiyi açıkla
 python3 main.py --help                       # Tam komut listesi
 ```
 
+TCMB EVDS entegrasyonu opsiyoneldir. Resmi EVDS verisini kullanmak için ortam değişkeni tanımla:
+
+```bash
+export TCMB_EVDS_API_KEY="..."
+```
+
+Key yoksa engine çalışmaya devam eder; raporda resmi EVDS verisi “yok” kabul edilir, sahte makro değer üretilmez.
+
 ## Mimari
 
 ```
@@ -109,9 +118,10 @@ cache.py                         SQLite (fiyat + metadata persistence)
 universe_builder.py              yatırılabilir evren filtreleme
 analyzer.py                      momentum/trend/volatilite/drawdown + anomaly detection
 scorer.py / allocator.py         skorlama + iki-bacaklı dağılım kararı
-regime_detector.py               makro rejim modifier
-breadth_analyzer.py              evren-içi rejim sinyali (% pozitif 3M)
+breadth_analyzer.py              baz rejim sinyali (% pozitif 3M)
+regime_detector.py               legacy makro rejim helper (ana karar akışında kullanılmaz)
 external_scan.py                 Yahoo (10 sembol × 1M/3M/6M) + Google News + KAP scanner
+official_macro.py                TCMB EVDS + BDDK resmi makro scanner
 external_intelligence.py         scan → bounded modifier (cross-source confirmation)
 external_context.py              gate + freshness + calendar entegrasyonu
 external_calendar.py             pre-known event awareness (TCMB MPC / TÜİK CPI / FOMC)

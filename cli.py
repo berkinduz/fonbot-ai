@@ -19,7 +19,6 @@ from external_scan import ExternalScanner
 from fund_profiler import FundProfiler
 from portfolio_manager import PortfolioManager
 from portfolio_store import PortfolioStore
-from regime_detector import RegimeDetector
 from reporter import DecisionReporter
 from research_store import ResearchStore
 from scorer import FundScorer
@@ -58,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--research-relevance", type=str, default="medium", help="high | medium | low")
     parser.add_argument("--research-funds", type=str, default="", help="Comma-separated fund codes this note refers to (optional)")
     parser.add_argument("--research-body-file", type=str, default="", help="Path to file with the note body. If omitted, body is read from stdin.")
-    parser.add_argument("--refresh-external-context", action="store_true", help="Run the autonomous external scanner (Yahoo macro proxies + Google News RSS for Turkey rates/news/fund-specific) before deciding. Refreshes context/current_external_context.json.")
+    parser.add_argument("--refresh-external-context", action="store_true", help="Run the autonomous external scanner (Yahoo macro proxies + TCMB/BDDK official macro + Google News RSS for Turkey rates/news/fund-specific) before deciding. Refreshes context/current_external_context.json.")
     parser.add_argument("--no-auto-context-refresh", action="store_true", help="Disable automatic external-context refresh when the saved context is older than the freshness threshold. Default: auto-refresh on.")
     parser.add_argument("--external-context", type=str, default="", help="Override path to the external-context JSON. Default: context/current_external_context.json.")
     parser.add_argument("--ignore-external-context-gate", action="store_true", help="Do not cap confidence when external context is missing/stale/incomplete. Use with caution.")
@@ -295,11 +294,14 @@ def run(argv: List[str] | None = None) -> int:
         out.print(text) if out else print(text)
         return 3
     breadth = BreadthAnalyzer().analyze(opportunity_metrics)
-    # Regime now blends macro-proxy detector (when available) with cross-sectional
-    # breadth. Breadth is independent of Yahoo/Google so it works in offline mode.
-    macro_regime = RegimeDetector().detect()
-    blended_regime_score = 0.5 * macro_regime.score + 0.5 * breadth.score
-    regime_inputs = list(macro_regime.unavailable_inputs) + [f"breadth: {breadth.label} ({breadth.score}/100, {int(breadth.positive_3m_pct*100)}% positive 3M)"]
+    # Regime baseline is cross-sectional breadth from the TEFAS opportunity
+    # universe. Official/Yahoo/KAP/calendar context is applied later through
+    # external_context.regime_score_delta and risk_penalty_delta, so macro
+    # source failures do not create a fake neutral regime layer.
+    base_regime_score = breadth.score
+    regime_inputs = list(breadth.verified_inputs) + [
+        f"regime baseline: breadth {breadth.label} ({breadth.score}/100, {int(breadth.positive_3m_pct*100)}% positive 3M)",
+    ]
     top = opportunities[0]
     mm = money[0]
 
@@ -339,7 +341,7 @@ def run(argv: List[str] | None = None) -> int:
         opportunity_score=top.score,
         money_market_code=mm.code,
         money_market_name=mm.name,
-        regime_score=max(0.0, min(100.0, blended_regime_score + external_context.regime_score_delta)),
+        regime_score=max(0.0, min(100.0, base_regime_score + external_context.regime_score_delta)),
         risk_penalty=max(top.metrics.volatility_3m * 10 + abs(top.metrics.max_drawdown) * 20 + external_context.risk_penalty_delta, 0),
         external_verified_data=external_context.verified_data,
         external_unavailable_data=external_context.unavailable_data + external_context.notes,
