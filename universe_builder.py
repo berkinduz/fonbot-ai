@@ -68,5 +68,11 @@ class UniverseBuilder:
         return True
 
     def _is_money_market(self, name: str, category: str) -> bool:
-        text = f"{name} {category}".lower()
-        return any(k in text for k in self.config.money_market_keywords)
+        # Turkish "İ".lower() yields "i̇" (combining dot), breaking keyword match.
+        # Normalize by stripping combining marks after casefold.
+        import unicodedata
+        raw = f"{name} {category}".replace("İ", "i").replace("I", "ı").casefold()
+        text = "".join(c for c in unicodedata.normalize("NFKD", raw) if not unicodedata.combining(c))
+        keywords = [k.casefold() for k in self.config.money_market_keywords]
+        keywords = ["".join(c for c in unicodedata.normalize("NFKD", k) if not unicodedata.combining(c)) for k in keywords]
+        return any(k in text for k in keywords)
